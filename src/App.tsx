@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import type { WorkoutSession } from './types';
 import { useRestTimer } from './hooks/useRestTimer';
 import { deleteSession, getPlan, getSessions, savePlan, saveSession } from './lib/db';
-import { requestNotificationPermission } from './lib/notify';
+import { clearOngoingWorkout, requestNotificationPermission, showOngoingWorkout } from './lib/notify';
 import { cancelRestPush, scheduleRestPush } from './lib/push';
 import { BottomNav, type Tab } from './components/BottomNav';
 import { RestBar } from './components/RestBar';
@@ -51,6 +51,27 @@ export default function App() {
   useEffect(() => {
     if (active) void saveSession(active);
   }, [active]);
+
+  // Ongoing "workout in progress" notification: shown with the elapsed time
+  // when the app is backgrounded mid-workout, cleared when it returns/ends.
+  useEffect(() => {
+    if (!active) return;
+    const startedAt = active.date;
+    const name = active.name;
+    void requestNotificationPermission();
+    const onVisibility = () => {
+      if (document.hidden) {
+        void showOngoingWorkout(name, Math.floor((Date.now() - startedAt) / 1000));
+      } else {
+        void clearOngoingWorkout();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      void clearOngoingWorkout();
+    };
+  }, [active?.id]);
 
   function startRest(seconds: number) {
     void requestNotificationPermission().then((perm) => {

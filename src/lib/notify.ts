@@ -82,3 +82,48 @@ export function fireRestOver() {
   vibrate([300, 120, 300]);
   void showNotification('Descanso terminado 💪', 'Bora — próxima série!');
 }
+
+function fmtClock(seconds: number): string {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = seconds % 60;
+  const mm = m.toString().padStart(2, '0');
+  const ss = s.toString().padStart(2, '0');
+  return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+}
+
+/**
+ * Persistent "workout in progress" notification. Shown when the user leaves the
+ * app mid-workout so they can see the elapsed time and tap to jump back.
+ * (A live-ticking lock-screen timer needs native Live Activities — unavailable
+ * to web apps — so this shows the time as of when the app was last active.)
+ */
+export async function showOngoingWorkout(name: string, seconds: number) {
+  if (!('serviceWorker' in navigator) || !('Notification' in window)) return;
+  if (Notification.permission !== 'granted') return;
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    await reg.showNotification('Treino em curso', {
+      body: `${name} · ${fmtClock(seconds)} decorridos`,
+      icon: '/pwa-192.png',
+      badge: '/pwa-192.png',
+      tag: 'workout-ongoing',
+      renotify: false,
+      silent: true,
+      requireInteraction: true,
+    } as NotificationOptions);
+  } catch {
+    /* ignore */
+  }
+}
+
+export async function clearOngoingWorkout() {
+  if (!('serviceWorker' in navigator)) return;
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const notes = await reg.getNotifications({ tag: 'workout-ongoing' });
+    notes.forEach((n) => n.close());
+  } catch {
+    /* ignore */
+  }
+}
