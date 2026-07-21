@@ -117,6 +117,43 @@ Alternativa para **testar já** sem deploy: um túnel temporário com HTTPS
 (`cloudflared tunnel --url http://localhost:8787` para o servidor e outro para o
 `:5180`), apontando `VITE_PUSH_SERVER` para o URL do túnel.
 
+### Deploy na tua VPS (servidor único — recomendado)
+
+O servidor (`server/index.mjs`) serve **a app E os endpoints de push** no mesmo
+processo/porta. Assim o cliente fala com o push no **mesmo domínio** e não
+precisas de configurar `VITE_PUSH_SERVER`.
+
+Na VPS (Node ≥ 20):
+
+```bash
+git clone https://github.com/itshenrique09/gymCoach.git && cd gymCoach
+npm install
+
+# segredos (NÃO estão no git):
+cp server/.env.example server/.env      # cola VAPID_PUBLIC_KEY + VAPID_PRIVATE_KEY
+printf 'VITE_EXERCISEDB_KEY=<a-tua-chave>\nVITE_VAPID_PUBLIC_KEY=<a-publica>\n' > .env.local
+
+npm run build                            # gera ./dist (embute as chaves VITE_)
+npm --prefix server install
+PORT=8787 node --env-file=server/.env server/index.mjs
+```
+
+Isto serve tudo em `http://IP:8787`. Falta só **HTTPS** (obrigatório para PWA +
+push) — mete um reverse-proxy à frente. Exemplo com **Caddy** (HTTPS automático):
+
+```
+treino.oteudominio.com {
+    reverse_proxy localhost:8787
+}
+```
+
+Para manter o processo vivo: `pm2 start server/index.mjs --name gym-coach` (ou um
+serviço systemd). Depois, no iPhone: abre `https://treino.oteudominio.com` no
+Safari → **Adicionar ao ecrã principal** → autoriza notificações.
+
+> Sempre que mudares o `VITE_EXERCISEDB_KEY`/`VITE_VAPID_PUBLIC_KEY`, corre
+> `npm run build` de novo (as variáveis `VITE_` são embutidas no build).
+
 ## Instalar no iPhone
 
 1. Servir a app por HTTPS (em dev: `npm run dev -- --host` + Safari na mesma

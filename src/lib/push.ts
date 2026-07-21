@@ -8,11 +8,13 @@
  * permission, and the server must be reachable over HTTPS.
  */
 
-const SERVER = import.meta.env.VITE_PUSH_SERVER as string | undefined;
+// Empty = same origin (single-process VPS deploy where the server also serves
+// the app). Set VITE_PUSH_SERVER only when the push server is on another host.
+const SERVER = (import.meta.env.VITE_PUSH_SERVER as string | undefined) || '';
 const VAPID = import.meta.env.VITE_VAPID_PUBLIC_KEY as string | undefined;
 
 export function pushConfigured(): boolean {
-  return Boolean(SERVER && VAPID);
+  return Boolean(VAPID);
 }
 
 function urlBase64ToUint8Array(base64: string): Uint8Array<ArrayBuffer> {
@@ -63,7 +65,7 @@ export async function scheduleRestPush(delaySeconds: number): Promise<void> {
 /** Cancel a pending rest push (e.g. the user skipped rest). */
 export async function cancelRestPush(): Promise<void> {
   try {
-    if (!SERVER) return;
+    if (!pushConfigured()) return;
     const reg = await navigator.serviceWorker?.ready;
     const sub = await reg?.pushManager.getSubscription();
     if (!sub) return;

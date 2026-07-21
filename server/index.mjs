@@ -1,7 +1,11 @@
 import express from 'express';
 import cors from 'cors';
 import webpush from 'web-push';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+import { existsSync } from 'node:fs';
 
+const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 8787;
 const PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY;
 const PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY;
@@ -62,4 +66,18 @@ app.post('/cancel', (req, res) => {
   res.json({ ok: true });
 });
 
-app.listen(PORT, () => console.log(`🔔 Push server a correr em http://localhost:${PORT}`));
+// Serve the built PWA (single-origin deploy). Run `npm run build` first.
+const distDir = join(__dirname, '..', 'dist');
+if (existsSync(distDir)) {
+  app.use(express.static(distDir));
+  // SPA fallback for client-side routes (non-API GETs).
+  app.use((req, res, next) => {
+    if (req.method !== 'GET') return next();
+    res.sendFile(join(distDir, 'index.html'));
+  });
+  console.log('📦 A servir a app a partir de ./dist');
+} else {
+  console.log('ℹ️  ./dist não encontrado — corre "npm run build" para servir a app.');
+}
+
+app.listen(PORT, () => console.log(`🔔 Gym Coach a correr em http://localhost:${PORT}`));
