@@ -1,33 +1,43 @@
 import type { ExerciseLog, WorkoutSession } from '../types';
-import { DEFAULT_ROUTINES, EXERCISE_BY_ID } from '../data/exercises';
+import { EXERCISE_BY_ID, MASS_ROUTINES } from '../data/exercises';
 import { saveBodyweight, saveSession } from './db';
 
 /** Plausible starting loads so the demo charts look like a real lifter's. */
 const START: Record<string, number> = {
   'bench-press': 60,
-  'db-shoulder-press': 18,
   'incline-db-press': 22,
+  'cable-crossover': 15,
+  ohp: 40,
   'lateral-raise': 7,
-  'triceps-pushdown': 25,
-  'pull-up': 0,
-  'barbell-row': 50,
+  'overhead-ext': 20,
+  'incline-db-row': 22,
   'lat-pulldown': 45,
-  'seated-row': 45,
-  'barbell-curl': 25,
+  'edb-0214': 25,
+  'face-pull': 20,
+  'ez-bar-curl': 25,
+  'hammer-curl': 12,
   'back-squat': 80,
   'romanian-deadlift': 70,
   'leg-press': 140,
-  'leg-curl': 35,
+  'seated-leg-curl': 35,
+  'leg-extension': 45,
   'calf-raise': 60,
+  'bulgarian-split': 14,
+  'incline-machine-press': 40,
+  'close-grip-pulldown': 45,
+  'edb-0192': 5,
+  'bayesian-curl': 10,
+  'triceps-pushdown': 25,
+  'overhead-rope-ext': 20,
 };
 
 /**
- * Development helper: fills the database with ~10 weeks of Push/Pull/Legs
- * history plus bodyweight entries, so every screen has something to show.
+ * Development helper: fills the database with ~10 weeks of the built-in
+ * plan's history plus bodyweight entries, so every screen has something to show.
  * Only ever imported behind `import.meta.env.DEV`.
  */
 export async function seedDemoData() {
-  const rotation = ['push', 'pull', 'legs'].map((id) => DEFAULT_ROUTINES.find((r) => r.id === id)!);
+  const rotation = MASS_ROUTINES;
   const day = 86_400_000;
   const now = Date.now();
   const count: Record<string, number> = {};

@@ -68,6 +68,9 @@ export interface ExerciseLog {
   sets: SetLog[];
   /** Free-text note for this exercise in this session. */
   note?: string;
+  /** Carried over from the routine item — see `RoutineItem`. */
+  scheme?: number[];
+  repRange?: [number, number];
 }
 
 export interface WorkoutSession {
@@ -86,6 +89,13 @@ export interface RoutineItem {
   exerciseId: string;
   sets: number;
   restSeconds: number;
+  /**
+   * Reps per set for the first time this is done, when they differ from set
+   * to set — a pyramid such as [12, 10, 8]. After that the log decides.
+   */
+  scheme?: number[];
+  /** Rep range for this workout, when it differs from the exercise's own. */
+  repRange?: [number, number];
 }
 
 /** A reusable, user-editable workout template (one training day). */
@@ -153,8 +163,14 @@ export interface BodyEntry {
 /** Cached ExerciseDB media for one exercise (offline after first fetch). */
 export interface ExerciseMedia {
   exerciseId: string;
+  /** Version of the matching rule that chose this media (see lib/exercisedb). */
+  v?: number;
+  /** Search term the media was fetched with; a changed term invalidates it. */
+  query?: string;
   /** ExerciseDB internal id used to fetch the GIF. */
   dbId?: string;
+  /** Name of the ExerciseDB entry the demo was taken from. */
+  matchedName?: string;
   /** The demo GIF stored as a blob so it works fully offline. */
   gifBlob?: Blob;
   target?: string;

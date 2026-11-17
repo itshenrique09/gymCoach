@@ -1,4 +1,4 @@
-import type { ExerciseLog, MuscleGroup, Routine, SetKind, SetLog, WorkoutSession } from '../types';
+import type { ExerciseLog, MuscleGroup, Routine, RoutineItem, SetKind, SetLog, WorkoutSession } from '../types';
 import { EXERCISE_BY_ID } from '../data/exercises';
 import { getExerciseHistory, getSettings } from './db';
 import { getRecommendation } from '../engine/progression';
@@ -11,11 +11,18 @@ function uid(): string {
  * A fresh log for one exercise, pre-filled with the progression engine's
  * recommended load/reps. `sets`/`restSeconds` override the exercise defaults.
  */
-export async function buildExerciseLog(exerciseId: string, sets?: number, restSeconds?: number): Promise<ExerciseLog | null> {
-  const ex = EXERCISE_BY_ID[exerciseId];
-  if (!ex) return null;
+export async function buildExerciseLog(
+  exerciseId: string,
+  sets?: number,
+  restSeconds?: number,
+  /** Per-workout prescription, from the routine item (or a past log being repeated). */
+  rx: Pick<RoutineItem, 'scheme' | 'repRange'> = {},
+): Promise<ExerciseLog | null> {
+  const base = EXERCISE_BY_ID[exerciseId];
+  if (!base) return null;
+  const ex = rx.repRange ? { ...base, repRange: rx.repRange } : base;
   const [history, settings] = await Promise.all([getExerciseHistory(exerciseId), getSettings()]);
-  const rec = getRecommendation(ex, history, settings.progressionMethod, sets);
+  const rec = getRecommendation(ex, history, settings.progressionMethod, sets, rx.scheme);
   // A pyramid / ladder is laid out rung by rung, exactly as planned — never
   // padded to the routine's set count: a repeated rung would make it look like
   // straight sets next time and the ladder would be lost.
@@ -28,6 +35,8 @@ export async function buildExerciseLog(exerciseId: string, sets?: number, restSe
     // `??`, not `||`: a rest of 0 in a routine means "no rest timer".
     restSeconds: restSeconds ?? ex.restSeconds,
     sets: planned.map((s) => ({ weight: s.weight, reps: s.reps, done: false })),
+    ...(rx.scheme ? { scheme: rx.scheme } : {}),
+    ...(rx.repRange ? { repRange: rx.repRange } : {}),
   };
 }
 
@@ -39,7 +48,7 @@ export async function buildExerciseLog(exerciseId: string, sets?: number, restSe
 export async function buildSessionFromRoutine(routine: Routine): Promise<WorkoutSession> {
   const exercises: ExerciseLog[] = [];
   for (const item of routine.items) {
-    const log = await buildExerciseLog(item.exerciseId, item.sets, item.restSeconds);
+    const log = await buildExerciseLog(item.exerciseId, item.sets, item.restSeconds, item);
     if (log) exercises.push(log);
   }
   return { id: uid(), date: Date.now(), name: routine.name, routineId: routine.id, exercises };
@@ -55,7 +64,7 @@ export async function buildSessionFromPast(past: WorkoutSession): Promise<Workou
   const exercises: ExerciseLog[] = [];
   for (const ex of past.exercises) {
     const working = ex.sets.filter((s) => !s.warmup).length;
-    const log = await buildExerciseLog(ex.exerciseId, working || ex.targetSets, ex.restSeconds);
+    const log = await buildExerciseLog(ex.exerciseId, working || ex.targetSets, ex.restSeconds, ex);
     if (log) exercises.push(log);
   }
   return { id: uid(), date: Date.now(), name: past.name, routineId: past.routineId, exercises };

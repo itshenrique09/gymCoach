@@ -120,16 +120,21 @@ export function Session({
     });
   }, []);
 
-  const exerciseIds = session.exercises.map((e) => e.exerciseId).join(',');
+  // What the coach needs to know about each exercise, as one stable string:
+  // the effect below should re-run when the list of exercises (or what the
+  // workout prescribes for them) changes — not on every set that is edited.
+  const prescriptions = JSON.stringify(session.exercises.map((e) => [e.exerciseId, e.repRange ?? null, e.scheme ?? null]));
 
   useEffect(() => {
     if (!settingsLoaded) return;
     let cancelled = false;
     (async () => {
       const m: Record<string, ExMeta> = {};
-      for (const id of exerciseIds ? exerciseIds.split(',') : []) {
-        const def = EXERCISE_BY_ID[id];
-        if (!def) continue;
+      for (const [id, repRange, scheme] of JSON.parse(prescriptions) as [string, [number, number] | null, number[] | null][]) {
+        const base = EXERCISE_BY_ID[id];
+        if (!base) continue;
+        // The workout may prescribe its own rep range / first-time pyramid.
+        const def = repRange ? { ...base, repRange } : base;
         const history = await getExerciseHistory(id);
         let prevBest = 0;
         let prevMax = 0;
@@ -142,7 +147,7 @@ export function Session({
         }
         const lastLog = history[history.length - 1];
         m[id] = {
-          rec: getRecommendation(def, history, method),
+          rec: getRecommendation(def, history, method, undefined, scheme ?? undefined),
           last: lastPerformanceText(history),
           lastSets: lastLog ? lastLog.sets.filter((s) => s.done && !s.warmup && s.reps > 0).map((s) => ({ weight: s.weight, reps: s.reps })) : [],
           prevBestE1rm: prevBest,
@@ -155,7 +160,7 @@ export function Session({
     return () => {
       cancelled = true;
     };
-  }, [session.id, exerciseIds, method, settingsLoaded]);
+  }, [session.id, prescriptions, method, settingsLoaded]);
 
   // ---- Mutations (all functional, see `onChange`) ----
 

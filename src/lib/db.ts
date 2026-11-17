@@ -10,10 +10,9 @@ import type {
   WorkoutSession,
 } from '../types';
 import {
-  DEFAULT_ACTIVE_PLAN_ID,
-  DEFAULT_PLANS,
-  DEFAULT_ROUTINES,
   EXERCISE_BY_ID,
+  MASS_PLAN,
+  MASS_ROUTINES,
   registerCustomExercises,
   unregisterCustomExercise,
 } from '../data/exercises';
@@ -45,48 +44,83 @@ const DEFAULT_SETTINGS: AppSettings = {
 
 let dbPromise: Promise<IDBPDatabase<GymDB>> | null = null;
 
+/**
+ * Open a database with the app's schema, migrating it if needed. The name is
+ * a parameter only so the migrations can be exercised on a scratch database.
+ */
+export function openGymDB(name = 'gym-coach') {
+  return openDB<GymDB>(name, 7, {
+    async upgrade(db, oldVersion, _newVersion, tx) {
+      if (oldVersion < 1) {
+        const sessions = db.createObjectStore('sessions', { keyPath: 'id' });
+        sessions.createIndex('by-date', 'date');
+        const routines = db.createObjectStore('routines', { keyPath: 'id' });
+        for (const r of MASS_ROUTINES) routines.put(r);
+      }
+      if (oldVersion < 2) {
+        db.createObjectStore('settings', { keyPath: 'id' });
+        db.createObjectStore('media', { keyPath: 'exerciseId' });
+        const store = tx.objectStore('routines');
+        const routines = (await store.getAll()) as Array<Routine & { exerciseIds?: string[] }>;
+        for (const r of routines) {
+          if (r.items) continue;
+          const ids = r.exerciseIds ?? [];
+          r.items = ids.map((exerciseId) => {
+            const ex = EXERCISE_BY_ID[exerciseId];
+            return { exerciseId, sets: ex?.defaultSets ?? 3, restSeconds: ex?.restSeconds ?? 90 };
+          });
+          delete r.exerciseIds;
+          await store.put(r);
+        }
+      }
+      if (oldVersion < 3) {
+        const plans = db.createObjectStore('plans', { keyPath: 'id' });
+        plans.put(MASS_PLAN);
+        const settings = tx.objectStore('settings');
+        const current = await settings.get('app');
+        await settings.put({ ...DEFAULT_SETTINGS, ...current, activePlanId: current?.activePlanId ?? MASS_PLAN.id });
+      }
+      if (oldVersion < 4) {
+        db.createObjectStore('bodyweight', { keyPath: 'id' });
+      }
+      if (oldVersion < 5) {
+        db.createObjectStore('exercises', { keyPath: 'id' });
+      }
+      if (oldVersion < 6) {
+        // The "Massa muscular" plan is added next to whatever exists.
+        const routines = tx.objectStore('routines');
+        for (const r of MASS_ROUTINES) await routines.put(r);
+        await tx.objectStore('plans').put(MASS_PLAN);
+      }
+      if (oldVersion < 7) {
+        // "Massa muscular" becomes the only plan: every other plan and
+        // workout is removed and it is made the active one. The training
+        // history is not touched — a past session carries its own name and
+        // sets, so it does not need the workout it was started from.
+        const keep = new Set(MASS_ROUTINES.map((r) => r.id));
+        const routines = tx.objectStore('routines');
+        for (const id of await routines.getAllKeys()) if (!keep.has(id)) await routines.delete(id);
+        for (const r of MASS_ROUTINES) await routines.put(r);
+
+        const plans = tx.objectStore('plans');
+        const settings = tx.objectStore('settings');
+        const current = await settings.get('app');
+        const existing = await plans.get(MASS_PLAN.id);
+        for (const id of await plans.getAllKeys()) if (id !== MASS_PLAN.id) await plans.delete(id);
+        const activeSince = current?.activePlanId === MASS_PLAN.id ? existing?.activatedAt : undefined;
+        await plans.put({
+          ...MASS_PLAN,
+          createdAt: existing?.createdAt ?? MASS_PLAN.createdAt,
+          activatedAt: activeSince ?? Date.now(),
+        });
+        await settings.put({ ...DEFAULT_SETTINGS, ...current, activePlanId: MASS_PLAN.id });
+      }
+    },
+  });
+}
+
 function getDB() {
-  if (!dbPromise) {
-    dbPromise = openDB<GymDB>('gym-coach', 5, {
-      async upgrade(db, oldVersion, _newVersion, tx) {
-        if (oldVersion < 1) {
-          const sessions = db.createObjectStore('sessions', { keyPath: 'id' });
-          sessions.createIndex('by-date', 'date');
-          const routines = db.createObjectStore('routines', { keyPath: 'id' });
-          for (const r of DEFAULT_ROUTINES) routines.put(r);
-        }
-        if (oldVersion < 2) {
-          db.createObjectStore('settings', { keyPath: 'id' });
-          db.createObjectStore('media', { keyPath: 'exerciseId' });
-          const store = tx.objectStore('routines');
-          const routines = (await store.getAll()) as Array<Routine & { exerciseIds?: string[] }>;
-          for (const r of routines) {
-            if (r.items) continue;
-            const ids = r.exerciseIds ?? [];
-            r.items = ids.map((exerciseId) => {
-              const ex = EXERCISE_BY_ID[exerciseId];
-              return { exerciseId, sets: ex?.defaultSets ?? 3, restSeconds: ex?.restSeconds ?? 90 };
-            });
-            delete r.exerciseIds;
-            await store.put(r);
-          }
-        }
-        if (oldVersion < 3) {
-          const plans = db.createObjectStore('plans', { keyPath: 'id' });
-          for (const p of DEFAULT_PLANS) plans.put(p);
-          const settings = tx.objectStore('settings');
-          const current = await settings.get('app');
-          await settings.put({ ...DEFAULT_SETTINGS, ...current, activePlanId: current?.activePlanId ?? DEFAULT_ACTIVE_PLAN_ID });
-        }
-        if (oldVersion < 4) {
-          db.createObjectStore('bodyweight', { keyPath: 'id' });
-        }
-        if (oldVersion < 5) {
-          db.createObjectStore('exercises', { keyPath: 'id' });
-        }
-      },
-    });
-  }
+  if (!dbPromise) dbPromise = openGymDB();
   return dbPromise;
 }
 
@@ -290,13 +324,13 @@ export async function importBackup(backup: Backup) {
   registerCustomExercises(backup.exercises ?? []);
 }
 
-/** Wipe training data and restore the starter plans/workouts. */
+/** Wipe training data and restore the built-in plan and its workouts. */
 export async function resetAllData() {
   const db = await getDB();
   const tx = db.transaction([...BACKUP_STORES], 'readwrite');
   for (const name of BACKUP_STORES) await tx.objectStore(name).clear();
-  for (const r of DEFAULT_ROUTINES) await tx.objectStore('routines').put(r);
-  for (const p of DEFAULT_PLANS) await tx.objectStore('plans').put(p);
-  await tx.objectStore('settings').put({ ...DEFAULT_SETTINGS, activePlanId: DEFAULT_ACTIVE_PLAN_ID });
+  for (const r of MASS_ROUTINES) await tx.objectStore('routines').put(r);
+  await tx.objectStore('plans').put({ ...MASS_PLAN, activatedAt: Date.now() });
+  await tx.objectStore('settings').put({ ...DEFAULT_SETTINGS, activePlanId: MASS_PLAN.id });
   await tx.done;
 }

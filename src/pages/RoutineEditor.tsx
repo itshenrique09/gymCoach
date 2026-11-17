@@ -105,7 +105,7 @@ export function RoutineEditor({ routineId, onDone }: { routineId?: string; onDon
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-[16.5px] font-bold text-label">{ex.name}</div>
                   <div className="text-[13px] text-label3">
-                    {MUSCLE_LABEL[ex.muscle]} · {ex.repRange[0]}–{ex.repRange[1]} reps
+                    {MUSCLE_LABEL[ex.muscle]} · {it.scheme ? `pirâmide ${it.scheme.join('/')}` : `${(it.repRange ?? ex.repRange)[0]}–${(it.repRange ?? ex.repRange)[1]} reps`}
                   </div>
                 </div>
                 <IconButton icon="chevronUp" label={`Subir ${ex.name}`} tone="ghost" size={34} onClick={() => move(idx, -1)} />

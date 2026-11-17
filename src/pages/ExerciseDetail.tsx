@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import type { ExerciseMedia, SetLog } from '../types';
 import { EQUIPMENT_LABEL, EXERCISE_BY_ID, MUSCLE_LABEL, secondaryMuscles } from '../data/exercises';
 import { deleteCustomExercise, getSessions } from '../lib/db';
-import { getExerciseMedia } from '../lib/exercisedb';
+import { getExerciseMedia, NO_DEMO } from '../lib/exercisedb';
 import { getExercisePoints, type ExercisePoint } from '../lib/stats';
 import { fmtKg } from '../lib/format';
 import { ExerciseForm } from '../components/ExercisePicker';
@@ -35,7 +35,7 @@ export function ExerciseDetail({ exerciseId, onBack }: { exerciseId: string; onB
     if (!ex) return;
     let cancelled = false;
     setLoadingMedia(true);
-    void getExerciseMedia(ex.id, ex.demoQuery).then((m) => {
+    void getExerciseMedia(ex.id, ex.demoQuery, ex.muscle).then((m) => {
       if (!cancelled) {
         setMedia(m);
         setLoadingMedia(false);
@@ -122,6 +122,8 @@ export function ExerciseDetail({ exerciseId, onBack }: { exerciseId: string; onB
               <Icon name="info" size={19} className="shrink-0 text-label3" />
               {media?.error === 'no-key' ? (
                 <span>Demonstração indisponível: falta a chave ExerciseDB no ficheiro .env.local.</span>
+              ) : media?.error === NO_DEMO ? (
+                <span>Este exercício não tem demonstração disponível.</span>
               ) : (
                 <span>Não foi possível carregar a demonstração{media?.error ? ` (${media.error})` : ''}. Tenta de novo com rede.</span>
               )}

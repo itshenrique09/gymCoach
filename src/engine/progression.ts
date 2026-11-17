@@ -157,6 +157,8 @@ export function getRecommendation(
   method: ProgressionMethod = 'double',
   /** Sets the workout calls for, when known — sizes a first-time pyramid. */
   setCount?: number,
+  /** Reps per set the workout prescribes for a first-time pyramid, e.g. [12, 10, 8]. */
+  firstScheme?: number[],
 ): Recommendation {
   const [bottom, top] = exercise.repRange;
   const inc = exercise.loadIncrement;
@@ -176,11 +178,12 @@ export function getRecommendation(
   }
 
   if (perf.length === 0) {
-    if (method === 'pyramid' && !isBodyweight) {
-      // Lay out a descending-rep scheme across the exercise's range; the
-      // loads are for the user to find on the day.
+    if ((method === 'pyramid' || firstScheme) && !isBodyweight) {
+      // Use the workout's own rep scheme if it has one; otherwise lay one out
+      // across the exercise's range. The loads are for the user to find on
+      // the day.
       const n = Math.max(1, setCount || sets);
-      const scheme = n <= 1 ? [top] : Array.from({ length: n }, (_, i) => Math.round(top - ((top - bottom) * i) / (n - 1)));
+      const scheme = firstScheme ?? (n <= 1 ? [top] : Array.from({ length: n }, (_, i) => Math.round(top - ((top - bottom) * i) / (n - 1))));
       return {
         action: 'start',
         weight: 0,
