@@ -141,6 +141,8 @@ export interface AppSettings {
   progressionMethod?: ProgressionMethod;
   /** Currently active training plan. */
   activePlanId?: string;
+  /** Keep the screen on while the rest timer runs (default true). */
+  keepAwake?: boolean;
   /** Target number of workouts per week (drives the week ring + streak). */
   weeklyGoal?: number;
   /** Accent colour theme. */

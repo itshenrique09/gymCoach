@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { getSettings } from '../lib/db';
 import { fireRestOver, primeAudio } from '../lib/notify';
+import { keepScreenOn } from '../lib/wakeLock';
 
 /**
  * Rest countdown driven by an absolute end-timestamp, so it stays accurate even
@@ -50,8 +52,23 @@ export function useRestTimer() {
     return () => clearInterval(id);
   }, [endTime]);
 
+  // Hold the screen on for the length of the rest, so the phone does not lock
+  // (and silence the alarm) before the countdown ends.
+  const running = endTime !== null;
+  useEffect(() => {
+    if (!running) return;
+    let cancelled = false;
+    void getSettings().then((s) => {
+      if (!cancelled && s.keepAwake !== false) keepScreenOn(true);
+    });
+    return () => {
+      cancelled = true;
+      keepScreenOn(false);
+    };
+  }, [running]);
+
   return {
-    running: endTime !== null,
+    running,
     remaining,
     total,
     start,

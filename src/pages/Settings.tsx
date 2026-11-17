@@ -202,6 +202,9 @@ export function Settings({ onBack }: { onBack: () => void }) {
         <Row label="Descanso automático" hint="Inicia o temporizador ao marcar uma série.">
           <Toggle checked={settings.autoRest !== false} onChange={(v) => update({ autoRest: v })} label="Descanso automático" />
         </Row>
+        <Row label="Ecrã ligado no descanso" hint="Se o telemóvel bloquear, o aviso sonoro não toca.">
+          <Toggle checked={settings.keepAwake !== false} onChange={(v) => update({ keepAwake: v })} label="Ecrã ligado no descanso" />
+        </Row>
         <Row label="Barra" hint="Para o cálculo dos discos.">
           <div className="flex gap-0.5 rounded-[11px] bg-surface-2 p-0.5">
             {BAR_WEIGHTS.map((w) => (

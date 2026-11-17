@@ -1,4 +1,4 @@
-import type { ExerciseLog, MuscleGroup, Routine, RoutineItem, SetKind, SetLog, WorkoutSession } from '../types';
+import type { ExerciseLog, MuscleGroup, PlannedSet, Routine, RoutineItem, SetKind, SetLog, WorkoutSession } from '../types';
 import { EXERCISE_BY_ID } from '../data/exercises';
 import { getExerciseHistory, getSettings } from './db';
 import { getRecommendation } from '../engine/progression';
@@ -8,8 +8,27 @@ function uid(): string {
 }
 
 /**
- * A fresh log for one exercise, pre-filled with the progression engine's
- * recommended load/reps. `sets`/`restSeconds` override the exercise defaults.
+ * The working sets of the most recent session of an exercise, exactly as they
+ * were done — what a plain log starts from when the coach is off. `sets` is
+ * how many the workout calls for: extra ones repeat the last set done.
+ */
+export function repeatLast(history: ExerciseLog[], sets?: number): PlannedSet[] | null {
+  for (let i = history.length - 1; i >= 0; i--) {
+    const done = history[i].sets.filter((s) => s.done && s.reps > 0 && !s.warmup && s.kind !== 'drop');
+    if (done.length === 0) continue;
+    return Array.from({ length: sets || done.length }, (_, j) => {
+      const s = done[Math.min(j, done.length - 1)];
+      return { weight: s.weight, reps: s.reps };
+    });
+  }
+  return null;
+}
+
+/**
+ * A fresh log for one exercise. With the coach on it is pre-filled with the
+ * progression engine's recommended load/reps; with the coach off nothing is
+ * suggested, so it starts from what was done last time. `sets`/`restSeconds`
+ * override the exercise defaults.
  */
 export async function buildExerciseLog(
   exerciseId: string,
@@ -26,12 +45,17 @@ export async function buildExerciseLog(
   // A pyramid / ladder is laid out rung by rung, exactly as planned — never
   // padded to the routine's set count: a repeated rung would make it look like
   // straight sets next time and the ladder would be lost.
-  const planned = rec.plan ?? Array.from({ length: sets || rec.sets }, () => ({ weight: rec.weight, reps: rec.repTarget }));
+  const suggested = rec.plan ?? Array.from({ length: sets || rec.sets }, () => ({ weight: rec.weight, reps: rec.repTarget }));
+  // Coach off: no progression. (A first time has nothing to repeat, so it
+  // still gets the workout's own layout — reps to aim for, no load.)
+  const repeated = settings.coachLevel === 'off' ? repeatLast(history, sets) : null;
+  const planned = repeated ?? suggested;
+  const top = planned[planned.length - 1];
   return {
     exerciseId,
     targetSets: planned.length,
-    targetReps: rec.repTarget,
-    targetWeight: rec.weight,
+    targetReps: repeated ? top.reps : rec.repTarget,
+    targetWeight: repeated ? top.weight : rec.weight,
     // `??`, not `||`: a rest of 0 in a routine means "no rest timer".
     restSeconds: restSeconds ?? ex.restSeconds,
     sets: planned.map((s) => ({ weight: s.weight, reps: s.reps, done: false })),
