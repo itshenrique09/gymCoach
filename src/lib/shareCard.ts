@@ -1,4 +1,5 @@
 import type { WorkoutSummary } from './summary';
+import { accentColor } from './theme';
 
 const dateFmt = new Intl.DateTimeFormat('pt-PT', { weekday: 'long', day: 'numeric', month: 'long' });
 
@@ -21,13 +22,14 @@ export function drawCard(sum: WorkoutSummary): HTMLCanvasElement {
   canvas.height = H;
   const ctx = canvas.getContext('2d')!;
   const font = "'Inter Variable', -apple-system, system-ui, sans-serif";
+  const accent = accentColor();
 
   ctx.fillStyle = '#0a0a0b';
   ctx.fillRect(0, 0, W, H);
 
   // Header
   ctx.textBaseline = 'alphabetic';
-  ctx.fillStyle = '#0a84ff';
+  ctx.fillStyle = accent;
   ctx.font = `600 34px ${font}`;
   ctx.fillText('GYM COACH', P, 140);
 
@@ -52,11 +54,11 @@ export function drawCard(sum: WorkoutSummary): HTMLCanvasElement {
   const by = 400;
   stats.forEach(([value, label], i) => {
     const bx = P + i * (bw + gap);
-    ctx.fillStyle = '#1c1c1e';
+    ctx.fillStyle = '#16181c';
     roundRect(ctx, bx, by, bw, bh, 28);
     ctx.fill();
     ctx.textAlign = 'center';
-    ctx.fillStyle = i === 2 ? '#409cff' : '#ffffff';
+    ctx.fillStyle = i === 2 ? accent : '#ffffff';
     ctx.font = `700 66px ${font}`;
     ctx.fillText(value, bx + bw / 2, by + 120);
     ctx.fillStyle = 'rgba(235,235,245,0.6)';
@@ -74,14 +76,14 @@ export function drawCard(sum: WorkoutSummary): HTMLCanvasElement {
     y += 40;
     for (const pr of sum.prs.slice(0, 4)) {
       const rh = 130;
-      ctx.fillStyle = '#1c1c1e';
+      ctx.fillStyle = '#16181c';
       roundRect(ctx, P, y, W - 2 * P, rh, 28);
       ctx.fill();
       // trophy badge
-      ctx.fillStyle = 'rgba(255,214,10,0.16)';
+      ctx.fillStyle = 'rgba(255,209,102,0.16)';
       roundRect(ctx, P + 30, y + 35, 60, 60, 16);
       ctx.fill();
-      ctx.fillStyle = '#ffd60a';
+      ctx.fillStyle = '#ffd166';
       ctx.font = `700 30px ${font}`;
       ctx.textAlign = 'center';
       ctx.fillText('PR', P + 60, y + 74);
@@ -92,7 +94,7 @@ export function drawCard(sum: WorkoutSummary): HTMLCanvasElement {
       ctx.fillStyle = 'rgba(235,235,245,0.6)';
       ctx.font = `400 32px ${font}`;
       ctx.fillText(`${pr.weight}kg × ${pr.reps}`, P + 120, y + 102);
-      ctx.fillStyle = '#ffd60a';
+      ctx.fillStyle = '#ffd166';
       ctx.font = `700 46px ${font}`;
       ctx.textAlign = 'right';
       ctx.fillText(`${pr.e1rm} kg`, W - P - 30, y + 82);

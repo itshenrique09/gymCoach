@@ -17,7 +17,9 @@ export type Equipment =
   | 'machine'
   | 'cable'
   | 'bodyweight'
-  | 'kettlebell';
+  | 'kettlebell'
+  | 'band'
+  | 'other';
 
 /** A movement in the library. Progression + demo config live here. */
 export interface Exercise {
@@ -34,7 +36,14 @@ export interface Exercise {
   restSeconds: number;
   /** English term used to fetch a demo GIF from ExerciseDB. */
   demoQuery: string;
+  /** Created by the user (stored in IndexedDB, not in the seed library). */
+  custom?: boolean;
+  /** Original English name, for exercises that come from the big catalogue. */
+  nameEn?: string;
 }
+
+/** How a set is tagged in the log. `warmup` lives on its own flag (legacy). */
+export type SetKind = 'normal' | 'warmup' | 'drop' | 'failure';
 
 /** One logged set inside a session. */
 export interface SetLog {
@@ -45,6 +54,8 @@ export interface SetLog {
   done: boolean;
   /** Warm-up set — excluded from volume, PRs and progression. */
   warmup?: boolean;
+  /** Drop set / set taken to failure (working sets with a tag). */
+  kind?: 'drop' | 'failure';
 }
 
 /** All sets for one exercise within a session. */
@@ -55,6 +66,8 @@ export interface ExerciseLog {
   targetWeight: number;
   restSeconds: number;
   sets: SetLog[];
+  /** Free-text note for this exercise in this session. */
+  note?: string;
 }
 
 export interface WorkoutSession {
@@ -64,6 +77,8 @@ export interface WorkoutSession {
   exercises: ExerciseLog[];
   finishedAt?: number;
   notes?: string;
+  /** Routine this session was started from (drives "next workout"). */
+  routineId?: string;
 }
 
 /** One exercise slot inside a reusable routine, with its own prescription. */
@@ -99,14 +114,34 @@ export interface Plan {
  */
 export type CoachLevel = 'off' | 'simple' | 'full';
 
+/**
+ * The user's preferred way of progressing:
+ *  - double:  same load on every set; build reps within a range, then add load
+ *  - pyramid: load up and reps down set after set; the pyramid slides up a rung
+ *  - linear:  fixed reps; add load every session the reps are all made
+ */
+export type ProgressionMethod = 'double' | 'pyramid' | 'linear';
+
 export interface AppSettings {
   id: 'app';
   unit: 'kg' | 'lb';
   defaultRestSeconds: number;
   coachLevel: CoachLevel;
+  /** Preferred progression method. Default 'double'. */
+  progressionMethod?: ProgressionMethod;
   /** Currently active training plan. */
   activePlanId?: string;
+  /** Target number of workouts per week (drives the week ring + streak). */
+  weeklyGoal?: number;
+  /** Accent colour theme. */
+  accent?: Accent;
+  /** Start the rest timer automatically when a set is ticked. Default on. */
+  autoRest?: boolean;
+  /** Barbell weight used by the plate calculator. Default 20. */
+  barWeight?: number;
 }
+
+export type Accent = 'lime' | 'sky' | 'orange' | 'violet' | 'rose' | 'mint';
 
 /** A bodyweight measurement (one per day, keyed by day). */
 export interface BodyEntry {
@@ -132,6 +167,12 @@ export interface ExerciseMedia {
 
 export type RecAction = 'start' | 'increase' | 'hold' | 'deload' | 'swap';
 
+/** One prescribed set. */
+export interface PlannedSet {
+  weight: number;
+  reps: number;
+}
+
 /** Output of the progression engine — the "PT" decision for an exercise. */
 export interface Recommendation {
   action: RecAction;
@@ -140,4 +181,10 @@ export interface Recommendation {
   sets: number;
   /** Short PT-style explanation, in pt-PT. */
   message: string;
+  /**
+   * Set-by-set prescription, when the sets are not all the same — i.e. the
+   * user trains this exercise as a ladder (60 → 65 → 70). `weight`/`repTarget`
+   * then describe the heaviest set.
+   */
+  plan?: PlannedSet[];
 }

@@ -1,38 +1,66 @@
-import { useEffect, useState } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import type { WorkoutSession } from './types';
 import { useRestTimer } from './hooks/useRestTimer';
 import { deleteSession, getPlan, getSessions, savePlan, saveSession } from './lib/db';
-import { clearOngoingWorkout, requestNotificationPermission, showOngoingWorkout } from './lib/notify';
-import { cancelRestPush, scheduleRestPush } from './lib/push';
+import { scrollToTop } from './lib/format';
+import { EXERCISE_BY_ID } from './data/exercises';
 import { BottomNav, type Tab } from './components/BottomNav';
 import { RestBar } from './components/RestBar';
+import { StartSheet } from './components/StartSheet';
 import { Today } from './pages/Today';
 import { Plans } from './pages/Plans';
 import { Progress } from './pages/Progress';
 import { Library } from './pages/Library';
-import { Session as SessionView } from './pages/Session';
+import { Session } from './pages/Session';
 import { Settings } from './pages/Settings';
 import { RoutineEditor } from './pages/RoutineEditor';
 import { PlanEditor } from './pages/PlanEditor';
 import { ExerciseDetail } from './pages/ExerciseDetail';
 import { Summary } from './pages/Summary';
+import { WorkoutDetail } from './pages/WorkoutDetail';
 import { buildWorkoutSummary, type WorkoutSummary } from './lib/summary';
+
+// Memoised: the rest countdown re-renders the app shell every second, and the
+// workout screen is too big to re-render along with it (it would stutter the
+// animations playing while you rest).
+const SessionView = memo(Session);
 
 type Screen =
   | { name: 'tabs' }
   | { name: 'settings' }
   | { name: 'routine-editor'; routineId?: string; returnPlanId?: string; attach?: boolean }
-  | { name: 'plan-editor'; planId: string };
+  | { name: 'plan-editor'; planId: string }
+  | { name: 'workout'; sessionId: string };
+
+/** Seconds since `start`, ticking once a second while `enabled`. */
+function useElapsed(start: number | undefined, enabled: boolean): number | null {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    if (!enabled) return;
+    setNow(Date.now());
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [enabled, start]);
+  return enabled && start ? Math.max(0, Math.floor((now - start) / 1000)) : null;
+}
 
 export default function App() {
   const [tab, setTab] = useState<Tab>('today');
   const [active, setActive] = useState<WorkoutSession | null>(null);
+  /** The workout keeps running while the user browses the rest of the app. */
+  const [minimized, setMinimized] = useState(false);
   const [screen, setScreen] = useState<Screen>({ name: 'tabs' });
   const [peekExercise, setPeekExercise] = useState<string | null>(null);
   const [summary, setSummary] = useState<WorkoutSummary | null>(null);
+  const [startOpen, setStartOpen] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
   const [planEditorReload, setPlanEditorReload] = useState(0);
   const timer = useRestTimer();
+  /** True while a finished workout is being saved (see `finish`). */
+  const finishing = useRef(false);
+
+  const inSession = active !== null && !minimized;
+  const runningSeconds = useElapsed(active?.date, active !== null && minimized);
 
   useEffect(() => {
     void getSessions().then((all) => {
@@ -49,59 +77,53 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (active) void saveSession(active);
+    if (active && !finishing.current) void saveSession(active);
   }, [active]);
 
-  // Ongoing "workout in progress" notification: shown with the elapsed time
-  // when the app is backgrounded mid-workout, cleared when it returns/ends.
+  // Each screen starts at the top.
   useEffect(() => {
-    if (!active) return;
-    const startedAt = active.date;
-    const name = active.name;
-    void requestNotificationPermission();
-    const onVisibility = () => {
-      if (document.hidden) {
-        void showOngoingWorkout(name, Math.floor((Date.now() - startedAt) / 1000));
-      } else {
-        void clearOngoingWorkout();
-      }
-    };
-    document.addEventListener('visibilitychange', onVisibility);
-    return () => {
-      document.removeEventListener('visibilitychange', onVisibility);
-      void clearOngoingWorkout();
-    };
-  }, [active?.id]);
+    scrollToTop();
+  }, [tab, screen, inSession, summary]);
 
-  function startRest(seconds: number) {
-    void requestNotificationPermission().then((perm) => {
-      if (perm === 'granted') void scheduleRestPush(seconds);
-    });
-    timer.start(seconds);
+  const refresh = () => setReloadKey((k) => k + 1);
+
+  function startSession(s: WorkoutSession) {
+    setStartOpen(false);
+    setScreen({ name: 'tabs' });
+    setMinimized(false);
+    setActive(s);
   }
 
-  function skipRest() {
-    void cancelRestPush();
-    timer.skip();
+  function resume() {
+    setStartOpen(false);
+    setMinimized(false);
   }
 
   async function finish() {
-    if (!active) return;
+    if (!active || finishing.current) return;
     const s = active;
-    const sum = await buildWorkoutSummary(s);
-    void saveSession({ ...s, finishedAt: Date.now() });
+    // From here on the workout is frozen: an edit made while it is being
+    // saved would either be lost or, worse, be written back *after* the
+    // finished copy and bring the workout back as unfinished.
+    finishing.current = true;
+    let sum: WorkoutSummary;
+    try {
+      sum = await buildWorkoutSummary(s);
+      await saveSession({ ...s, finishedAt: Date.now() });
+    } finally {
+      finishing.current = false;
+    }
     setActive(null);
-    void cancelRestPush();
+    setMinimized(false);
     timer.skip();
-    setReloadKey((k) => k + 1);
+    refresh();
     setSummary(sum);
   }
 
-  function cancel() {
-    if (active && !confirm('Cancelar e descartar este treino?')) return;
+  function discard() {
     if (active) void deleteSession(active.id);
     setActive(null);
-    void cancelRestPush();
+    setMinimized(false);
     timer.skip();
   }
 
@@ -126,80 +148,149 @@ export default function App() {
       setPlanEditorReload((k) => k + 1);
     } else {
       setScreen({ name: 'tabs' });
-      setReloadKey((k) => k + 1);
+      refresh();
     }
   }
 
-  if (peekExercise) {
-    return <ExerciseDetail exerciseId={peekExercise} onBack={() => setPeekExercise(null)} />;
-  }
+  // Stable identities for the memoised workout screen. `finish`/`discard` read
+  // fresh state, so they are reached through a ref rather than re-created.
+  const actions = useRef({ finish, discard });
+  useEffect(() => {
+    actions.current = { finish, discard };
+  });
+  const changeSession = useCallback((fn: (s: WorkoutSession) => WorkoutSession) => {
+    if (!finishing.current) setActive((s) => (s ? fn(s) : s));
+  }, []);
+  const onFinish = useCallback(() => actions.current.finish(), []);
+  const onDiscard = useCallback(() => actions.current.discard(), []);
+  const minimize = useCallback(() => setMinimized(true), []);
 
-  if (active) {
+  function renderBase() {
+    if (active && !minimized) {
+      return (
+        <SessionView
+          session={active}
+          onChange={changeSession}
+          onStartRest={timer.start}
+          onFinish={onFinish}
+          onDiscard={onDiscard}
+          onMinimize={minimize}
+          onOpenExercise={setPeekExercise}
+          restRunning={timer.running}
+        />
+      );
+    }
+
+    if (summary) {
+      return (
+        <Summary
+          data={summary}
+          onDone={() => {
+            setSummary(null);
+            setTab('today');
+          }}
+        />
+      );
+    }
+
+    if (screen.name === 'settings') {
+      return (
+        <Settings
+          onBack={() => {
+            setScreen({ name: 'tabs' });
+            refresh();
+          }}
+        />
+      );
+    }
+
+    if (screen.name === 'routine-editor') {
+      return <RoutineEditor routineId={screen.routineId} onDone={routineEditorDone} />;
+    }
+
+    if (screen.name === 'plan-editor') {
+      return (
+        <PlanEditor
+          planId={screen.planId}
+          reloadKey={planEditorReload}
+          onDone={() => {
+            setScreen({ name: 'tabs' });
+            refresh();
+          }}
+          onEditRoutine={(id) => setScreen({ name: 'routine-editor', routineId: id, returnPlanId: screen.planId, attach: false })}
+          onCreateRoutine={() => setScreen({ name: 'routine-editor', returnPlanId: screen.planId, attach: true })}
+        />
+      );
+    }
+
+    if (screen.name === 'workout') {
+      return (
+        <WorkoutDetail
+          sessionId={screen.sessionId}
+          canStart={active === null}
+          onBack={() => setScreen({ name: 'tabs' })}
+          onDeleted={() => {
+            setScreen({ name: 'tabs' });
+            refresh();
+          }}
+          onRepeat={startSession}
+          onOpenExercise={setPeekExercise}
+        />
+      );
+    }
+
     return (
-      <>
-        <SessionView session={active} onChange={setActive} onStartRest={startRest} onFinish={finish} onCancel={cancel} onOpenExercise={setPeekExercise} />
-        {timer.running && <RestBar remaining={timer.remaining} total={timer.total} onAdd={() => timer.addTime(15)} onSkip={skipRest} />}
-      </>
-    );
-  }
-
-  if (summary) {
-    return (
-      <Summary
-        data={summary}
-        onDone={() => {
-          setSummary(null);
-          setTab('progress');
-        }}
-      />
-    );
-  }
-
-  if (screen.name === 'settings') {
-    return <Settings onBack={() => setScreen({ name: 'tabs' })} />;
-  }
-
-  if (screen.name === 'routine-editor') {
-    return <RoutineEditor routineId={screen.routineId} onDone={routineEditorDone} />;
-  }
-
-  if (screen.name === 'plan-editor') {
-    return (
-      <PlanEditor
-        planId={screen.planId}
-        reloadKey={planEditorReload}
-        onDone={() => {
-          setScreen({ name: 'tabs' });
-          setReloadKey((k) => k + 1);
-        }}
-        onEditRoutine={(id) => setScreen({ name: 'routine-editor', routineId: id, returnPlanId: screen.planId, attach: false })}
-        onCreateRoutine={() => setScreen({ name: 'routine-editor', returnPlanId: screen.planId, attach: true })}
-      />
+      <div className="min-h-full pb-28">
+        <div key={tab} className="animate-rise">
+          {tab === 'today' && (
+            <Today
+              reloadKey={reloadKey}
+              active={active}
+              onResume={resume}
+              onStart={startSession}
+              onEditRoutine={(id) => setScreen({ name: 'routine-editor', routineId: id })}
+              onOpenSettings={() => setScreen({ name: 'settings' })}
+              onGoPlans={() => setTab('plans')}
+              onOpenWorkout={(id) => setScreen({ name: 'workout', sessionId: id })}
+            />
+          )}
+          {tab === 'plans' && (
+            <Plans
+              reloadKey={reloadKey}
+              onEditPlan={(id) => setScreen({ name: 'plan-editor', planId: id })}
+              onCreatePlan={createPlan}
+              onChanged={refresh}
+            />
+          )}
+          {tab === 'progress' && (
+            <Progress
+              reloadKey={reloadKey}
+              onOpenWorkout={(id) => setScreen({ name: 'workout', sessionId: id })}
+              onOpenExercise={setPeekExercise}
+            />
+          )}
+          {tab === 'library' && <Library onOpenExercise={setPeekExercise} />}
+        </div>
+        <BottomNav tab={tab} onChange={setTab} onStart={() => (active ? resume() : setStartOpen(true))} runningSeconds={runningSeconds} />
+      </div>
     );
   }
 
   return (
-    <div className="min-h-full pb-24">
-      {tab === 'today' && (
-        <Today
-          reloadKey={reloadKey}
-          onStart={setActive}
-          onEditRoutine={(id) => setScreen({ name: 'routine-editor', routineId: id })}
-          onOpenSettings={() => setScreen({ name: 'settings' })}
-          onGoPlans={() => setTab('plans')}
+    <>
+      {renderBase()}
+      {inSession && timer.running && <RestBar remaining={timer.remaining} total={timer.total} onAdd={timer.addTime} onSkip={timer.skip} />}
+      {startOpen && <StartSheet onStart={startSession} onClose={() => setStartOpen(false)} onGoPlans={() => { setStartOpen(false); setTab('plans'); }} />}
+      {peekExercise && (
+        <ExerciseDetail
+          exerciseId={peekExercise}
+          onBack={() => {
+            setPeekExercise(null);
+            // Custom exercises can be edited or deleted from the detail screen.
+            if (!EXERCISE_BY_ID[peekExercise] || EXERCISE_BY_ID[peekExercise].custom) refresh();
+          }}
         />
       )}
-      {tab === 'plans' && (
-        <Plans
-          reloadKey={reloadKey}
-          onEditPlan={(id) => setScreen({ name: 'plan-editor', planId: id })}
-          onCreatePlan={createPlan}
-          onChanged={() => setReloadKey((k) => k + 1)}
-        />
-      )}
-      {tab === 'progress' && <Progress />}
-      {tab === 'library' && <Library onOpenExercise={setPeekExercise} />}
-      <BottomNav tab={tab} onChange={setTab} />
-    </div>
+    </>
   );
 }

@@ -27,13 +27,11 @@ export function useRestTimer() {
 
   const addTime = useCallback(
     (delta: number) => {
-      setEndTime((prev) => {
-        const base = prev ?? Date.now();
-        const next = Math.max(Date.now(), base + delta * 1000);
-        firedRef.current = false;
-        setTotal((t) => Math.max(0, t + delta));
-        return next;
-      });
+      // Two independent updates: a state updater has to stay pure (React may
+      // run it twice), so the total can't be adjusted from inside the other.
+      firedRef.current = false;
+      setEndTime((prev) => Math.max(Date.now(), (prev ?? Date.now()) + delta * 1000));
+      setTotal((t) => Math.max(0, t + delta));
     },
     [],
   );

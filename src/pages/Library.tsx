@@ -1,61 +1,108 @@
-import { useMemo, useState } from 'react';
-import { EQUIPMENT_LABEL, EXERCISES, MUSCLE_LABEL } from '../data/exercises';
-import type { Exercise, MuscleGroup } from '../types';
+import { useState } from 'react';
+import { EQUIPMENT_LABEL, MUSCLE_LABEL, MUSCLE_ORDER } from '../data/exercises';
+import type { Equipment, Exercise, MuscleGroup } from '../types';
+import { EquipmentFilter, ExerciseForm, MuscleFilter, Paged, SearchField } from '../components/ExercisePicker';
+import { filterExercises } from '../lib/search';
+import { IconButton, PageHeader, Tag } from '../components/ui';
+import { Icon } from '../components/icons';
 
-const norm = (s: string) => s.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase();
+/** Exercises shown per muscle group before "see all". */
+const PREVIEW = 5;
+
+function Row({ ex, showMuscle, onOpen }: { ex: Exercise; showMuscle?: boolean; onOpen: () => void }) {
+  return (
+    <button onClick={onOpen} className="press flex w-full items-center gap-3 py-3 pr-3 pl-4 text-left">
+      <span className="min-w-0 flex-1">
+        <span className="flex items-center gap-2">
+          <span className="truncate text-[16px] font-semibold text-label">{ex.name}</span>
+          {ex.custom && <Tag tone="tint">Teu</Tag>}
+        </span>
+        <span className="block truncate text-[13px] text-label3">
+          {showMuscle ? `${MUSCLE_LABEL[ex.muscle]} · ` : ''}
+          {EQUIPMENT_LABEL[ex.equipment]} · {ex.repRange[0]}–{ex.repRange[1]} reps
+        </span>
+      </span>
+      <Icon name="chevronRight" size={17} className="shrink-0 text-label3" />
+    </button>
+  );
+}
 
 export function Library({ onOpenExercise }: { onOpenExercise: (id: string) => void }) {
   const [query, setQuery] = useState('');
+  const [muscle, setMuscle] = useState<MuscleGroup | null>(null);
+  const [equipment, setEquipment] = useState<Equipment | null>(null);
+  const [creating, setCreating] = useState(false);
 
-  const groups = useMemo(() => {
-    const q = norm(query.trim());
-    const filtered = q ? EXERCISES.filter((e) => norm(e.name).includes(q) || norm(MUSCLE_LABEL[e.muscle]).includes(q)) : EXERCISES;
-    const map = new Map<MuscleGroup, Exercise[]>();
-    for (const ex of filtered) {
-      const list = map.get(ex.muscle) ?? [];
-      list.push(ex);
-      map.set(ex.muscle, list);
-    }
-    return map;
-  }, [query]);
+  // The library is an in-memory array (mutated in place when custom exercises
+  // change), so it is simply re-filtered on every render.
+  const list = filterExercises(query, muscle, equipment);
+  const browsing = !query.trim() && muscle === null;
 
   return (
     <div className="mx-auto max-w-md px-4 pt-safe">
-      <header className="pt-3 pb-3">
-        <h1 className="large-title text-label">Exercícios</h1>
-      </header>
+      <PageHeader
+        title="Exercícios"
+        eyebrow={`${list.length.toLocaleString('pt-PT')} ${list.length === 1 ? 'exercício' : 'exercícios'}`}
+        action={<IconButton icon="plus" label="Criar exercício" tone="tint" onClick={() => setCreating(true)} />}
+      />
 
-      <div className="relative mb-4">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-label3"><circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" /></svg>
-        <input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Procurar exercício"
-          className="w-full rounded-[10px] bg-surface py-2.5 pl-9 pr-3 text-[16px] text-label outline-none placeholder:text-label3"
-        />
+      <div className="space-y-2.5">
+        <SearchField value={query} onChange={setQuery} placeholder="Procurar (português ou inglês)" />
+        <MuscleFilter value={muscle} onChange={setMuscle} />
+        <EquipmentFilter value={equipment} onChange={setEquipment} />
       </div>
 
-      {groups.size === 0 ? (
-        <p className="py-10 text-center text-[15px] text-label2">Nenhum exercício encontrado.</p>
-      ) : (
-        <div className="space-y-6 pb-2">
-          {[...groups.entries()].map(([muscle, list]) => (
-            <section key={muscle}>
-              <h2 className="mb-2 px-3 text-[13px] font-medium uppercase tracking-wide text-label2">{MUSCLE_LABEL[muscle]}</h2>
-              <div className="list">
-                {list.map((ex) => (
-                  <button key={ex.id} onClick={() => onOpenExercise(ex.id)} className="press flex w-full items-center justify-between px-4 py-3 text-left">
-                    <div>
-                      <div className="text-[16px] text-label">{ex.name}</div>
-                      <div className="text-[13px] text-label2">{EQUIPMENT_LABEL[ex.equipment]} · {ex.repRange[0]}–{ex.repRange[1]} reps</div>
-                    </div>
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" className="h-4 w-4 shrink-0 text-label3"><path d="m9 18 6-6-6-6" /></svg>
-                  </button>
-                ))}
-              </div>
-            </section>
-          ))}
+      {list.length === 0 ? (
+        <div className="py-12 text-center">
+          <p className="text-[15px] text-label2">Nenhum exercício encontrado.</p>
+          <button onClick={() => setCreating(true)} className="press mt-3 rounded-full bg-surface-2 px-4 py-2.5 text-[14px] font-semibold text-tint">
+            Criar “{query.trim() || 'novo exercício'}”
+          </button>
         </div>
+      ) : browsing ? (
+        // No search and no muscle picked: a short preview of each group (the
+        // most common exercises come first) with a way into the full list.
+        <div className="mt-4 space-y-6 pb-2">
+          {MUSCLE_ORDER.map((m) => {
+            const items = list.filter((e) => e.muscle === m);
+            if (items.length === 0) return null;
+            return (
+              <section key={m}>
+                <h2 className="eyebrow mb-2 px-1">
+                  {MUSCLE_LABEL[m]} · {items.length}
+                </h2>
+                <div className="list">
+                  {items.slice(0, PREVIEW).map((ex) => (
+                    <Row key={ex.id} ex={ex} onOpen={() => onOpenExercise(ex.id)} />
+                  ))}
+                  {items.length > PREVIEW && (
+                    <button onClick={() => setMuscle(m)} className="press flex w-full items-center justify-between py-3 pr-3 pl-4 text-left text-[14.5px] font-semibold text-tint">
+                      Ver os {items.length} de {MUSCLE_LABEL[m].toLowerCase()}
+                      <Icon name="chevronRight" size={17} />
+                    </button>
+                  )}
+                </div>
+              </section>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="list mt-4 mb-2">
+          <Paged key={`${query}|${muscle}|${equipment}`} items={list}>
+            {(ex) => <Row key={ex.id} ex={ex} showMuscle={muscle === null} onOpen={() => onOpenExercise(ex.id)} />}
+          </Paged>
+        </div>
+      )}
+
+      {creating && (
+        <ExerciseForm
+          initialName={list.length === 0 ? query.trim() : ''}
+          onClose={() => setCreating(false)}
+          onSaved={(ex) => {
+            setCreating(false);
+            onOpenExercise(ex.id);
+          }}
+        />
       )}
     </div>
   );

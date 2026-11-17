@@ -1,16 +1,16 @@
 {
-  "name": "gym-coach-push",
+  "name": "gym-coach-server",
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "Web Push server for Gym Coach (rest-timer notifications).",
-  "engines": { "node": ">=20" },
+  "description": "Static server for the Gym Coach PWA.",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "start": "node index.mjs"
   },
   "dependencies": {
-    "cors": "^2.8.6",
-    "express": "^5.2.1",
-    "web-push": "^3.6.7"
+    "express": "^5.2.1"
   }
 }

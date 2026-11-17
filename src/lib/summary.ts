@@ -1,7 +1,7 @@
 import type { WorkoutSession } from '../types';
-import { getExerciseHistory } from './db';
+import { getExerciseHistory, getSessions } from './db';
 import { EXERCISE_BY_ID } from '../data/exercises';
-import { epley1RM } from './stats';
+import { epley1RM, lastSessionOf } from './stats';
 import { completedSets, sessionVolume } from './session';
 
 export interface PR {
@@ -19,6 +19,8 @@ export interface WorkoutSummary {
   sets: number;
   exercises: number;
   prs: PR[];
+  /** Volume of the previous session of the same workout (for the delta). */
+  prevVolume?: number;
 }
 
 /**
@@ -51,7 +53,9 @@ export async function buildWorkoutSummary(session: WorkoutSession): Promise<Work
       }
     }
 
-    if (bestE1rm > prevBest + 0.5) {
+    // The first time an exercise is done it sets the baseline, not a record
+    // (same rule as the live trophies during the workout).
+    if (prevBest > 0 && bestE1rm > prevBest + 0.5) {
       prs.push({
         name: EXERCISE_BY_ID[ex.exerciseId]?.name ?? ex.exerciseId,
         weight: bestSet.weight,
@@ -61,13 +65,18 @@ export async function buildWorkoutSummary(session: WorkoutSession): Promise<Work
     }
   }
 
+  const all = await getSessions();
+  const prev = lastSessionOf({ id: session.routineId ?? '', name: session.name, items: [] }, all.filter((s) => s.id !== session.id));
+
   return {
     name: session.name,
     date: session.date,
-    durationMin: Math.max(1, Math.round((Date.now() - session.date) / 60_000)),
+    // Same cap as the history (a workout left open overnight isn't a 20-hour one).
+    durationMin: Math.min(240, Math.max(1, Math.round((Date.now() - session.date) / 60_000))),
     volume: Math.round(sessionVolume(session)),
     sets: completedSets(session),
     exercises: session.exercises.filter((ex) => ex.sets.some((s) => s.done)).length,
     prs,
+    prevVolume: prev ? Math.round(sessionVolume(prev)) : undefined,
   };
 }

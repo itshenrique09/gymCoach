@@ -2,6 +2,7 @@ import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
 import type {
   AppSettings,
   BodyEntry,
+  Exercise,
   ExerciseLog,
   ExerciseMedia,
   Plan,
@@ -13,6 +14,8 @@ import {
   DEFAULT_PLANS,
   DEFAULT_ROUTINES,
   EXERCISE_BY_ID,
+  registerCustomExercises,
+  unregisterCustomExercise,
 } from '../data/exercises';
 
 interface GymDB extends DBSchema {
@@ -26,6 +29,7 @@ interface GymDB extends DBSchema {
   settings: { key: string; value: AppSettings };
   media: { key: string; value: ExerciseMedia };
   bodyweight: { key: string; value: BodyEntry };
+  exercises: { key: string; value: Exercise };
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -33,13 +37,17 @@ const DEFAULT_SETTINGS: AppSettings = {
   unit: 'kg',
   defaultRestSeconds: 120,
   coachLevel: 'simple',
+  weeklyGoal: 4,
+  accent: 'lime',
+  autoRest: true,
+  barWeight: 20,
 };
 
 let dbPromise: Promise<IDBPDatabase<GymDB>> | null = null;
 
 function getDB() {
   if (!dbPromise) {
-    dbPromise = openDB<GymDB>('gym-coach', 4, {
+    dbPromise = openDB<GymDB>('gym-coach', 5, {
       async upgrade(db, oldVersion, _newVersion, tx) {
         if (oldVersion < 1) {
           const sessions = db.createObjectStore('sessions', { keyPath: 'id' });
@@ -72,6 +80,9 @@ function getDB() {
         }
         if (oldVersion < 4) {
           db.createObjectStore('bodyweight', { keyPath: 'id' });
+        }
+        if (oldVersion < 5) {
+          db.createObjectStore('exercises', { keyPath: 'id' });
         }
       },
     });
@@ -178,4 +189,114 @@ export async function saveBodyweight(kg: number, when: number = Date.now()) {
   const d = new Date(when);
   const id = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
   await (await getDB()).put('bodyweight', { id, date: when, kg });
+}
+
+export async function deleteBodyweight(id: string) {
+  await (await getDB()).delete('bodyweight', id);
+}
+
+// ---- Custom exercises ----
+
+/** Load user-created exercises into the in-memory library. Call once at boot. */
+export async function loadCustomExercises() {
+  registerCustomExercises(await (await getDB()).getAll('exercises'));
+}
+
+export async function saveCustomExercise(exercise: Exercise) {
+  const ex = { ...exercise, custom: true };
+  await (await getDB()).put('exercises', ex);
+  registerCustomExercises([ex]);
+}
+
+export async function deleteCustomExercise(id: string) {
+  const db = await getDB();
+  await db.delete('exercises', id);
+  // Take it out of every workout too, so no routine points at a ghost.
+  for (const routine of await db.getAll('routines')) {
+    if (routine.items.some((it) => it.exerciseId === id)) {
+      await db.put('routines', { ...routine, items: routine.items.filter((it) => it.exerciseId !== id) });
+    }
+  }
+  unregisterCustomExercise(id);
+}
+
+// ---- Backup ----
+
+export interface Backup {
+  app: 'gym-coach';
+  version: 1;
+  exportedAt: number;
+  sessions: WorkoutSession[];
+  routines: Routine[];
+  plans: Plan[];
+  settings: AppSettings[];
+  bodyweight: BodyEntry[];
+  exercises: Exercise[];
+}
+
+/** Everything except the cached demo GIFs (those re-download on demand). */
+export async function exportBackup(): Promise<Backup> {
+  const db = await getDB();
+  const [sessions, routines, plans, settings, bodyweight, exercises] = await Promise.all([
+    db.getAll('sessions'),
+    db.getAll('routines'),
+    db.getAll('plans'),
+    db.getAll('settings'),
+    db.getAll('bodyweight'),
+    db.getAll('exercises'),
+  ]);
+  return { app: 'gym-coach', version: 1, exportedAt: Date.now(), sessions, routines, plans, settings, bodyweight, exercises };
+}
+
+/**
+ * Checks the whole file before anything is touched: every store is a list
+ * (the optional ones may be missing) and every row carries the id it will be
+ * stored under.
+ */
+export function isBackup(value: unknown): value is Backup {
+  const b = value as Record<string, unknown> | null;
+  if (!b || typeof b !== 'object' || b.app !== 'gym-coach') return false;
+  const rows = (name: string, required: boolean) => {
+    const list = b[name];
+    if (list === undefined) return !required;
+    return Array.isArray(list) && list.every((row) => row !== null && typeof row === 'object' && typeof (row as { id?: unknown }).id === 'string');
+  };
+  return rows('sessions', true) && rows('routines', true) && rows('plans', true) && rows('settings', false) && rows('bodyweight', false) && rows('exercises', false);
+}
+
+const BACKUP_STORES = ['sessions', 'routines', 'plans', 'settings', 'bodyweight', 'exercises'] as const;
+
+/** Replace all local data with the contents of a backup (single transaction). */
+export async function importBackup(backup: Backup) {
+  const db = await getDB();
+  const tx = db.transaction([...BACKUP_STORES], 'readwrite');
+  try {
+    for (const name of BACKUP_STORES) {
+      const store = tx.objectStore(name);
+      await store.clear();
+      for (const row of backup[name] ?? []) await store.put(row as never);
+    }
+    await tx.done;
+  } catch (e) {
+    // A JS error doesn't roll an IndexedDB transaction back by itself — abort
+    // it, or the stores cleared so far would stay cleared.
+    try {
+      tx.abort();
+    } catch {
+      /* already finished or aborted */
+    }
+    throw e;
+  }
+  registerCustomExercises(backup.exercises ?? []);
+}
+
+/** Wipe training data and restore the starter plans/workouts. */
+export async function resetAllData() {
+  const db = await getDB();
+  const tx = db.transaction([...BACKUP_STORES], 'readwrite');
+  for (const name of BACKUP_STORES) await tx.objectStore(name).clear();
+  for (const r of DEFAULT_ROUTINES) await tx.objectStore('routines').put(r);
+  for (const p of DEFAULT_PLANS) await tx.objectStore('plans').put(p);
+  await tx.objectStore('settings').put({ ...DEFAULT_SETTINGS, activePlanId: DEFAULT_ACTIVE_PLAN_ID });
+  await tx.done;
 }

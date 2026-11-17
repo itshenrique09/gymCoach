@@ -1,25 +1,7 @@
-# Render Blueprint — deploys the push server + the static PWA (both free).
-# In Render: New → Blueprint → pick this repo. Then fill the env vars marked
+# Render Blueprint — deploys the static PWA (free).
+# In Render: New → Blueprint → pick this repo. Then fill the env var marked
 # `sync: false` in the dashboard (see README → Deploy).
 services:
-  # 1) Push server (Node web service)
-  - type: web
-    name: gym-coach-push
-    runtime: node
-    rootDir: server
-    plan: free
-    buildCommand: npm install
-    startCommand: npm start
-    healthCheckPath: /health
-    envVars:
-      - key: VAPID_PUBLIC_KEY
-        sync: false
-      - key: VAPID_PRIVATE_KEY
-        sync: false
-      - key: VAPID_SUBJECT
-        value: mailto:henriquedspereira09@gmail.com
-
-  # 2) The PWA (static site)
   - type: web
     name: gym-coach-app
     runtime: static
@@ -28,10 +10,6 @@ services:
     envVars:
       - key: VITE_EXERCISEDB_KEY
         sync: false
-      - key: VITE_VAPID_PUBLIC_KEY
-        sync: false
-      - key: VITE_PUSH_SERVER
-        sync: false # set to the push server URL, e.g. https://gym-coach-push.onrender.com
     routes:
       - type: rewrite
         source: /*

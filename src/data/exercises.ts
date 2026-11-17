@@ -1,4 +1,5 @@
 import type { Exercise, MuscleGroup, Plan, Routine } from '../types';
+import { CATALOGUE, type CatalogueRow } from './exercises-extra';
 
 /**
  * Seed exercise library. Each entry carries its own progression config plus an
@@ -219,9 +220,145 @@ export const EXERCISES: Exercise[] = [
   { id: 'plate-pinch', name: 'Pinça de discos (seg.)', muscle: 'forearms', equipment: 'bodyweight', repRange: [20, 40], defaultSets: 3, loadIncrement: 0, restSeconds: 60, demoQuery: 'weighted plate pinch' },
 ];
 
+const LEGS: MuscleGroup[] = ['quads', 'hamstrings', 'glutes', 'calves'];
+const ARMS: MuscleGroup[] = ['biceps', 'triceps', 'forearms', 'shoulders'];
+const SMALL: MuscleGroup[] = ['forearms', 'calves', 'core'];
+/** Static holds are logged in seconds rather than reps. */
+const HOLD = /plank|l-sit|v-sit|planche|(front|back) lever|maltese|handstand$|^flag$|carry|farmers walk/;
+
+/**
+ * Turn a catalogue row into a full exercise. The catalogue only knows the
+ * name, muscle and equipment, so the progression settings (rep range, load
+ * jump, rest) are sensible defaults derived from those.
+ */
+function fromCatalogue([id, name, nameEn, muscle, equipment]: CatalogueRow): Exercise {
+  const small = SMALL.includes(muscle);
+  const legs = LEGS.includes(muscle);
+  const weighted = /weighted/.test(nameEn);
+  // On an assisted machine more weight means *more help*, so adding load is
+  // the opposite of progress: these progress on reps instead.
+  const assisted = /assisted/.test(nameEn);
+
+  let repRange: [number, number];
+  if (HOLD.test(nameEn)) repRange = [15, 45];
+  else if (small) repRange = [12, 20];
+  else if (equipment === 'barbell') repRange = [6, 10];
+  else if (equipment === 'cable' || equipment === 'other') repRange = [10, 15];
+  else if (equipment === 'band') repRange = [12, 20];
+  else if (equipment === 'bodyweight') repRange = weighted ? [5, 10] : [8, 15];
+  else repRange = [8, 12];
+
+  let loadIncrement: number;
+  switch (equipment) {
+    case 'barbell':
+      loadIncrement = legs || /deadlift/.test(nameEn) ? 5 : ARMS.includes(muscle) ? 1.25 : 2.5;
+      break;
+    case 'dumbbell':
+      loadIncrement = ARMS.includes(muscle) ? 1 : 2;
+      break;
+    case 'machine':
+      loadIncrement = legs ? 5 : 2.5;
+      break;
+    case 'cable':
+      loadIncrement = muscle === 'shoulders' || muscle === 'forearms' ? 1.25 : 2.5;
+      break;
+    case 'kettlebell':
+      loadIncrement = 4;
+      break;
+    case 'other':
+      loadIncrement = weighted ? 2.5 : 1;
+      break;
+    default:
+      // Bodyweight and bands progress on reps, unless ballast is added.
+      loadIncrement = weighted && equipment === 'bodyweight' ? 2.5 : 0;
+  }
+
+  if (assisted) loadIncrement = 0;
+
+  let restSeconds = weighted && equipment === 'bodyweight' ? 120 : 75;
+  if (equipment === 'barbell') restSeconds = legs || muscle === 'back' || muscle === 'chest' ? 150 : 90;
+  else if (equipment === 'dumbbell' || equipment === 'machine' || equipment === 'kettlebell') restSeconds = 90;
+  else if (equipment === 'band' || equipment === 'other') restSeconds = 60;
+  if (small) restSeconds = Math.min(restSeconds, 60);
+
+  return { id: `edb-${id}`, name, nameEn, muscle, equipment, repRange, defaultSets: 3, loadIncrement, restSeconds, demoQuery: nameEn };
+}
+
+// The hand-picked exercises above stay first (they are the common ones); the
+// big catalogue follows, grouped by muscle and sorted by name.
+for (const row of CATALOGUE) EXERCISES.push(fromCatalogue(row));
+
 export const EXERCISE_BY_ID: Record<string, Exercise> = Object.fromEntries(
   EXERCISES.map((e) => [e.id, e]),
 );
+
+/**
+ * Merge user-created exercises into the in-memory library so the rest of the
+ * app can keep doing synchronous `EXERCISE_BY_ID[id]` lookups.
+ */
+export function registerCustomExercises(list: Exercise[]) {
+  for (const ex of list) {
+    const i = EXERCISES.findIndex((e) => e.id === ex.id);
+    if (i >= 0) EXERCISES[i] = ex;
+    else EXERCISES.push(ex);
+    EXERCISE_BY_ID[ex.id] = ex;
+  }
+}
+
+export function unregisterCustomExercise(id: string) {
+  const i = EXERCISES.findIndex((e) => e.id === id && e.custom);
+  if (i >= 0) EXERCISES.splice(i, 1);
+  delete EXERCISE_BY_ID[id];
+}
+
+/**
+ * Secondary movers for the main compound lifts. They count as half a set in
+ * the weekly per-muscle totals (the usual "fractional sets" convention).
+ */
+const SECONDARY_RULES: Array<[RegExp, MuscleGroup[]]> = [
+  [/dips-triceps|close-grip-bench|bench-dip|diamond-pushup/, ['chest']],
+  [/bench|chest-press|push-?up|pushup|dips-chest|landmine-press|incline-(db|machine)-press|decline-db-press/, ['triceps', 'shoulders']],
+  [/upright-row|shrug/, ['shoulders']],
+  [/pull-up|chin-up|pulldown|row|rack-pull/, ['biceps']],
+  [/^deadlift$|sumo-deadlift/, ['hamstrings', 'glutes']],
+  [/ohp|shoulder-press|arnold-press|push-press|seated-barbell-press/, ['triceps']],
+  [/squat|leg-press|lunge|step-up/, ['glutes']],
+  [/romanian-deadlift|stiff-leg|good-morning|single-leg-rdl/, ['glutes']],
+  [/hip-thrust|glute-bridge|kb-swing|pull-through/, ['hamstrings']],
+  [/hammer|reverse-curl|zottman/, ['forearms']],
+];
+
+const CATALOGUE_SECONDARY: Array<[MuscleGroup, RegExp, MuscleGroup[]]> = [
+  ['chest', /press|push.?up|dip/, ['triceps', 'shoulders']],
+  ['back', /\brows?\b|pull|chin|muscle.?up/, ['biceps']],
+  ['shoulders', /press|jerk|thruster/, ['triceps']],
+  // "push-up", not "push": a pushdown is pure triceps.
+  ['triceps', /bench|press|dip|push.?up/, ['chest']],
+  ['quads', /squat|lunge|press|step/, ['glutes']],
+  ['hamstrings', /deadlift|good morning/, ['glutes']],
+  ['glutes', /thrust|bridge|pull through|hyper/, ['hamstrings']],
+];
+
+export function secondaryMuscles(ex: Exercise): MuscleGroup[] {
+  if (ex.custom || ex.muscle === 'calves' || ex.muscle === 'core' || ex.muscle === 'forearms') return [];
+  if (ex.nameEn) {
+    // Catalogue exercises have no hand-written id to match on, so go by the
+    // primary muscle plus the kind of movement in the English name.
+    const n = ex.nameEn;
+    for (const [muscle, re, secondary] of CATALOGUE_SECONDARY) {
+      if (ex.muscle === muscle && re.test(n)) return secondary;
+    }
+    return [];
+  }
+  for (const [re, muscles] of SECONDARY_RULES) {
+    if (re.test(ex.id)) return muscles.filter((m) => m !== ex.muscle);
+  }
+  return [];
+}
+
+export const MUSCLE_ORDER: MuscleGroup[] = [
+  'chest', 'back', 'shoulders', 'biceps', 'triceps', 'forearms', 'quads', 'hamstrings', 'glutes', 'calves', 'core',
+];
 
 export const MUSCLE_LABEL: Record<MuscleGroup, string> = {
   chest: 'Peito',
@@ -244,7 +381,11 @@ export const EQUIPMENT_LABEL: Record<Exercise['equipment'], string> = {
   cable: 'Cabo',
   bodyweight: 'Peso corporal',
   kettlebell: 'Kettlebell',
+  band: 'Elástico',
+  other: 'Outro',
 };
+
+export const EQUIPMENT_ORDER: Exercise['equipment'][] = ['barbell', 'dumbbell', 'machine', 'cable', 'bodyweight', 'kettlebell', 'band', 'other'];
 
 function routine(id: string, name: string, exerciseIds: string[]): Routine {
   return {

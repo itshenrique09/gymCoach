@@ -1,13 +1,10 @@
 import { useEffect, useState } from 'react';
-import type { Plan } from '../types';
-import { getPlans, getSettings, savePlan, saveSettings } from '../lib/db';
-
-function relDays(ts: number): string {
-  const d = Math.floor((Date.now() - ts) / 86_400_000);
-  if (d <= 0) return 'hoje';
-  if (d === 1) return 'ontem';
-  return `há ${d} dias`;
-}
+import type { Plan, Routine } from '../types';
+import { getPlans, getRoutines, getSettings, savePlan, saveSettings } from '../lib/db';
+import { estMinutes } from '../lib/session';
+import { relDays } from '../lib/format';
+import { IconButton, PageHeader, Tag } from '../components/ui';
+import { Icon } from '../components/icons';
 
 export function Plans({
   onEditPlan,
@@ -21,11 +18,14 @@ export function Plans({
   reloadKey: number;
 }) {
   const [plans, setPlans] = useState<Plan[] | null>(null);
+  const [routines, setRoutines] = useState<Record<string, Routine>>({});
   const [activeId, setActiveId] = useState<string | undefined>();
 
   async function load() {
-    const [p, s] = await Promise.all([getPlans(), getSettings()]);
-    setPlans(p.sort((a, b) => b.createdAt - a.createdAt));
+    const [p, s, r] = await Promise.all([getPlans(), getSettings(), getRoutines()]);
+    // Active plan first, then newest.
+    setPlans(p.sort((a, b) => Number(b.id === s.activePlanId) - Number(a.id === s.activePlanId) || b.createdAt - a.createdAt));
+    setRoutines(Object.fromEntries(r.map((x) => [x.id, x])));
     setActiveId(s.activePlanId);
   }
 
@@ -33,51 +33,81 @@ export function Plans({
     void load();
   }, [reloadKey]);
 
-  async function activate(plan: Plan, on: boolean) {
+  async function activate(plan: Plan) {
     const settings = await getSettings();
-    await saveSettings({ ...settings, activePlanId: on ? plan.id : undefined });
-    if (on) await savePlan({ ...plan, activatedAt: Date.now() });
+    await saveSettings({ ...settings, activePlanId: plan.id });
+    await savePlan({ ...plan, activatedAt: Date.now() });
+    await load();
+    onChanged();
+  }
+
+  async function deactivate() {
+    const settings = await getSettings();
+    await saveSettings({ ...settings, activePlanId: undefined });
     await load();
     onChanged();
   }
 
   return (
     <div className="mx-auto max-w-md px-4 pt-safe">
-      <header className="flex items-end justify-between pt-3 pb-4">
-        <h1 className="large-title text-label">Planos</h1>
-        <button onClick={onCreatePlan} aria-label="Criar plano" className="press pb-1.5 text-[28px] font-light leading-none text-tint">+</button>
-      </header>
+      <PageHeader title="Planos" action={<IconButton icon="plus" label="Criar plano" tone="tint" onClick={onCreatePlan} />} />
 
       {plans === null ? (
-        <div className="space-y-3">{[0, 1].map((i) => (<div key={i} className="h-28 animate-pulse rounded-2xl bg-surface" />))}</div>
+        <div className="space-y-3">
+          {[0, 1].map((i) => (
+            <div key={i} className="h-36 animate-pulse rounded-[22px] bg-surface" />
+          ))}
+        </div>
       ) : (
         <div className="space-y-3">
           {plans.map((plan) => {
             const active = plan.id === activeId;
+            const list = plan.routineIds.map((id) => routines[id]).filter(Boolean);
             return (
-              <div key={plan.id} className={`rounded-2xl bg-surface p-4 ${active ? 'ring-1 ring-tint' : ''}`}>
+              <article key={plan.id} className={active ? 'card-hero p-4' : 'card p-4'}>
                 <button onClick={() => onEditPlan(plan.id)} className="press block w-full text-left">
-                  <div className="flex items-center justify-between gap-2">
-                    <h3 className="truncate text-[17px] font-semibold text-label">{plan.name}</h3>
-                    {active && <span className="shrink-0 rounded-full bg-tint/15 px-2.5 py-0.5 text-[12px] font-semibold text-tint">Ativo</span>}
+                  <div className="flex items-center gap-2">
+                    <h2 className="min-w-0 flex-1 truncate text-[19px] font-extrabold tracking-tight text-label">{plan.name}</h2>
+                    {active && <Tag tone="tint">Ativo</Tag>}
+                    <Icon name="chevronRight" size={18} className="shrink-0 text-label3" />
                   </div>
-                  {plan.description && <p className="mt-0.5 text-[13px] text-label2">{plan.description}</p>}
-                  <p className="mt-1 text-[12px] text-label3">
-                    {plan.routineIds.length} treinos{active && plan.activatedAt ? ` · ativo ${relDays(plan.activatedAt)}` : ''}
+                  {plan.description && <p className="mt-0.5 text-[14px] text-label2">{plan.description}</p>}
+                  <p className="mt-1 text-[12.5px] text-label3">
+                    {list.length} {list.length === 1 ? 'treino' : 'treinos'}
+                    {active && plan.activatedAt ? ` · ativo ${relDays(plan.activatedAt)}` : ''}
                   </p>
                 </button>
-                <button
-                  onClick={() => activate(plan, !active)}
-                  className={`press mt-3 w-full rounded-[12px] py-2.5 text-[15px] font-semibold ${active ? 'bg-surface-2 text-label' : 'btn-tint'}`}
-                >
-                  {active ? 'Desativar' : 'Ativar plano'}
-                </button>
-              </div>
+
+                {list.length > 0 && (
+                  <ul className="mt-3 space-y-1.5">
+                    {list.map((r, i) => (
+                      <li key={r.id} className="flex items-baseline gap-2.5 text-[14px]">
+                        <span className="tnum w-4 shrink-0 text-right text-[12px] font-bold text-label3">{i + 1}</span>
+                        <span className="min-w-0 flex-1 truncate text-label">{r.name}</span>
+                        <span className="tnum shrink-0 text-[12.5px] text-label3">
+                          {r.items.length} ex. · ~{estMinutes(r)} min
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+
+                {active ? (
+                  <button onClick={() => void deactivate()} className="press mt-3 -mb-1 rounded-full py-1.5 text-[13.5px] font-semibold text-label3">
+                    Desativar plano
+                  </button>
+                ) : (
+                  <button onClick={() => void activate(plan)} className="press btn-secondary mt-4 !min-h-[46px]">
+                    Ativar plano
+                  </button>
+                )}
+              </article>
             );
           })}
 
-          <button onClick={onCreatePlan} className="press w-full rounded-2xl bg-surface py-3.5 text-[16px] font-medium text-tint">
-            + Criar plano
+          <button onClick={onCreatePlan} className="press btn-secondary">
+            <Icon name="plus" size={18} />
+            Criar plano
           </button>
         </div>
       )}

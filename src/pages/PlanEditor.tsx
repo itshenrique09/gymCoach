@@ -2,6 +2,9 @@ import { useEffect, useState } from 'react';
 import type { Plan, Routine } from '../types';
 import { deletePlan, getPlan, getRoutines, getSettings, savePlan, saveSettings } from '../lib/db';
 import { EXERCISE_BY_ID } from '../data/exercises';
+import { estMinutes } from '../lib/session';
+import { ConfirmSheet, IconButton, SectionTitle, Sheet, TopBar } from '../components/ui';
+import { Icon } from '../components/icons';
 
 export function PlanEditor({
   planId,
@@ -19,6 +22,7 @@ export function PlanEditor({
   const [plan, setPlan] = useState<Plan | null>(null);
   const [routines, setRoutines] = useState<Record<string, Routine>>({});
   const [showPicker, setShowPicker] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   useEffect(() => {
     void (async () => {
@@ -47,7 +51,7 @@ export function PlanEditor({
   }
 
   async function remove() {
-    if (!plan || !confirm('Apagar este plano?')) return;
+    if (!plan) return;
     const settings = await getSettings();
     if (settings.activePlanId === plan.id) await saveSettings({ ...settings, activePlanId: undefined });
     await deletePlan(plan.id);
@@ -60,81 +64,96 @@ export function PlanEditor({
   const available = Object.values(routines).filter((r) => !plan.routineIds.includes(r.id));
 
   return (
-    <div className="mx-auto max-w-md px-4 pt-safe pb-28">
-      <header className="material sticky top-0 z-10 -mx-4 flex items-center justify-between border-b border-line/70 px-4 pt-2 pb-2.5">
-        <button onClick={onDone} className="press text-[15px] text-tint">‹ Planos</button>
-        <span className="nav-title absolute left-1/2 -translate-x-1/2 text-label">Plano</span>
-        <span className="w-12" />
-      </header>
+    <div className="mx-auto max-w-md px-4 pt-safe pb-12">
+      <TopBar onBack={onDone} backLabel="Planos" title="Plano" right={<IconButton icon="trash" label="Apagar plano" tone="ghost" size={36} onClick={() => setConfirmDelete(true)} />} />
 
       <input
         value={plan.name}
         onChange={(e) => update({ name: e.target.value })}
-        className="mt-4 w-full bg-transparent text-[28px] font-bold tracking-tight text-label outline-none"
+        aria-label="Nome do plano"
+        className="mt-5 w-full bg-transparent text-[30px] font-extrabold tracking-[-0.035em] text-label outline-none placeholder:text-label3"
         placeholder="Nome do plano"
       />
       <input
         value={plan.description ?? ''}
         onChange={(e) => update({ description: e.target.value })}
-        className="mt-1 w-full bg-transparent text-[15px] text-label2 outline-none"
+        aria-label="Descrição do plano"
+        className="mt-1 w-full bg-transparent text-[15px] text-label2 outline-none placeholder:text-label3"
         placeholder="Descrição (opcional)"
       />
 
-      <h2 className="mb-2 mt-6 px-1 text-[13px] font-medium uppercase tracking-wide text-label2">Treinos</h2>
+      <SectionTitle>Treinos, pela ordem em que rodam</SectionTitle>
 
       {planRoutines.length === 0 ? (
-        <div className="rounded-2xl bg-surface p-6 text-center text-[14px] text-label2">Sem treinos. Adiciona abaixo.</div>
+        <div className="card p-6 text-center text-[14.5px] text-label2">Este plano ainda não tem treinos. Cria um ou adiciona um existente.</div>
       ) : (
         <div className="list">
           {planRoutines.map((r, idx) => (
-            <div key={r.id} className="flex items-center gap-2 px-4 py-3">
+            <div key={r.id} className="flex items-center gap-1 py-2.5 pr-2 pl-4">
+              <span className="tnum w-5 shrink-0 text-[13px] font-bold text-label3">{idx + 1}</span>
               <button onClick={() => onEditRoutine(r.id)} className="press min-w-0 flex-1 text-left">
-                <div className="truncate text-[16px] text-label">{r.name}</div>
-                <div className="text-[13px] text-label2">{r.items.length} exercícios</div>
+                <div className="truncate text-[16px] font-semibold text-label">{r.name}</div>
+                <div className="text-[13px] text-label3">
+                  {r.items.length} exercícios · ~{estMinutes(r)} min
+                </div>
               </button>
-              <button onClick={() => move(idx, -1)} className="press h-8 w-8 rounded-lg bg-surface-2 text-label2" aria-label="Subir">↑</button>
-              <button onClick={() => move(idx, 1)} className="press h-8 w-8 rounded-lg bg-surface-2 text-label2" aria-label="Descer">↓</button>
-              <button onClick={() => update({ routineIds: plan.routineIds.filter((id) => id !== r.id) })} className="press h-8 w-8 rounded-lg text-rose-400" aria-label="Remover">×</button>
+              <IconButton icon="chevronUp" label={`Subir ${r.name}`} tone="ghost" size={34} onClick={() => move(idx, -1)} />
+              <IconButton icon="chevronDown" label={`Descer ${r.name}`} tone="ghost" size={34} onClick={() => move(idx, 1)} />
+              <IconButton icon="close" label={`Remover ${r.name} do plano`} tone="ghost" size={34} onClick={() => update({ routineIds: plan.routineIds.filter((id) => id !== r.id) })} />
             </div>
           ))}
         </div>
       )}
 
       <div className="mt-3 space-y-2">
-        <button onClick={onCreateRoutine} className="btn-tint press w-full rounded-[14px] py-3 text-[15px] font-semibold">+ Criar novo treino</button>
+        <button onClick={onCreateRoutine} className="press btn-primary">
+          <Icon name="plus" size={18} />
+          Criar novo treino
+        </button>
         {available.length > 0 && (
-          <button onClick={() => setShowPicker(true)} className="press w-full rounded-2xl bg-surface py-3 text-[15px] font-medium text-tint">Adicionar treino existente</button>
+          <button onClick={() => setShowPicker(true)} className="press btn-secondary">
+            Adicionar treino existente
+          </button>
         )}
-        <button onClick={remove} className="press w-full py-2 text-[15px] font-medium text-rose-400">Apagar plano</button>
       </div>
 
       {showPicker && (
-        <div className="fixed inset-0 z-50 flex flex-col bg-ink">
-          <header className="material flex items-center justify-between border-b border-line/70 px-4 pt-safe pb-2.5">
-            <span className="nav-title pt-2 text-label">Adicionar treino</span>
-            <button onClick={() => setShowPicker(false)} className="press pt-2 text-[15px] text-tint">Fechar</button>
-          </header>
-          <div className="no-scrollbar flex-1 overflow-y-auto px-4 py-4">
-            <div className="list">
-              {available.map((r) => (
-                <button
-                  key={r.id}
-                  onClick={() => {
-                    update({ routineIds: [...plan.routineIds, r.id] });
-                    setShowPicker(false);
-                  }}
-                  className="press flex w-full items-center justify-between px-4 py-3 text-left"
-                >
-                  <span>
-                    <span className="block text-[16px] text-label">{r.name}</span>
-                    <span className="block text-[13px] text-label2">{r.items.map((it) => EXERCISE_BY_ID[it.exerciseId]?.name).filter(Boolean).slice(0, 3).join(', ')}</span>
+        <Sheet title="Adicionar treino" onClose={() => setShowPicker(false)}>
+          <div className="space-y-2">
+            {available.map((r) => (
+              <button
+                key={r.id}
+                onClick={() => {
+                  update({ routineIds: [...plan.routineIds, r.id] });
+                  setShowPicker(false);
+                }}
+                className="press flex w-full items-center gap-3 rounded-[18px] bg-surface-2 px-4 py-3 text-left"
+              >
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[16px] font-semibold text-label">{r.name}</span>
+                  <span className="block truncate text-[13px] text-label3">
+                    {r.items
+                      .map((it) => EXERCISE_BY_ID[it.exerciseId]?.name)
+                      .filter(Boolean)
+                      .slice(0, 3)
+                      .join(', ')}
                   </span>
-                  <span className="text-[22px] font-light text-tint">+</span>
-                </button>
-              ))}
-            </div>
+                </span>
+                <Icon name="plus" size={19} className="shrink-0 text-tint" />
+              </button>
+            ))}
           </div>
-        </div>
+        </Sheet>
+      )}
+
+      {confirmDelete && (
+        <ConfirmSheet
+          title="Apagar plano?"
+          text="Os treinos que fazem parte dele continuam guardados; só o plano é apagado."
+          confirmLabel="Apagar plano"
+          onConfirm={() => void remove()}
+          onClose={() => setConfirmDelete(false)}
+        />
       )}
     </div>
   );

@@ -46,7 +46,7 @@ export function SwipeRow({ onDelete, children }: { onDelete: () => void; childre
   }
 
   return (
-    <div className="relative overflow-hidden rounded-xl">
+    <div className="relative overflow-hidden rounded-[14px]">
       <button
         onClick={() => {
           openRef.current = false;
@@ -55,7 +55,8 @@ export function SwipeRow({ onDelete, children }: { onDelete: () => void; childre
         }}
         tabIndex={dx === 0 ? -1 : 0}
         aria-label="Apagar série"
-        className="absolute inset-y-0 right-0 flex w-[68px] items-center justify-center rounded-xl bg-rose-500 text-white"
+        // Hidden at rest so it doesn't peek out behind the row's rounded corners.
+        className={`absolute inset-y-0 right-0 flex w-[68px] items-center justify-center rounded-[14px] bg-danger text-white ${dx === 0 ? 'invisible' : ''}`}
       >
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5">
           <path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
