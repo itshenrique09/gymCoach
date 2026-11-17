@@ -15,8 +15,12 @@ export default defineConfig({
       registerType: 'autoUpdate',
       injectManifest: {
         globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
+        // Launcher icons are fetched by the system when the app is installed;
+        // the app itself never shows them, so they need not be kept offline.
+        globIgnores: ['**/pwa-*.png'],
       },
       includeAssets: ['favicon.svg', 'apple-touch-icon.png'],
+      includeManifestIcons: false,
       manifest: {
         name: 'Gym Coach',
         short_name: 'GymCoach',
@@ -30,7 +34,7 @@ export default defineConfig({
         icons: [
           { src: 'pwa-192.png', sizes: '192x192', type: 'image/png' },
           { src: 'pwa-512.png', sizes: '512x512', type: 'image/png' },
-          { src: 'pwa-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+          { src: 'pwa-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
         ],
       },
       devOptions: { enabled: true, type: 'module' },
