@@ -5,6 +5,8 @@ import { VitePWA } from 'vite-plugin-pwa'
 
 // https://vite.dev/config/
 export default defineConfig({
+  // The exercise demos come from the app's own server (`npm run server`).
+  server: { proxy: { '/api': 'http://localhost:8787' } },
   plugins: [
     react(),
     tailwindcss(),

@@ -27,7 +27,8 @@ npm run build    # build de produção (gera o service worker da PWA)
 | `src/data/exercises-extra.ts` | Catálogo alargado (~1100 exercícios) — ficheiro gerado, ver Créditos |
 | `src/engine/progression.ts` | **O "cérebro" do PT.** A carga só sobe quando foi conquistada. Progressão dupla com autorregulação por esforço (RIR): topo do intervalo em todas as séries → sobe; abaixo do mínimo de reps → desce; no limite → repete antes de pedir mais; no limite + reps a cair → recua; 3 sessões sem avançar → deload; 5 → troca. Séries desiguais são igualadas antes de somar reps. Três métodos à escolha nas Definições (progressão dupla, pirâmide crescente, linear); seja qual for, um exercício treinado em pirâmide (60×12 → 65×10 → 70×8) sobe um degrau quando cada série apanha as reps da de baixo, e uma escada de reps iguais (60 → 65 → 70 × 6) sobe ou desce toda junta conforme a série mais pesada |
 | `src/lib/db.ts` | Persistência IndexedDB (sessões, rotinas, definições, cache de media) |
-| `src/lib/exercisedb.ts` | Cliente ExerciseDB (GIF + instruções) com cache offline e fallback |
+| `src/lib/exercisedb.ts` | Demonstrações (GIF + instruções), pedidas ao servidor, (GIF + instruções) com cache offline e fallback |
+| `server/exercisedb.mjs` | Proxy da ExerciseDB: guarda a chave e as demonstrações já pedidas |
 | `src/lib/stats.ts` | 1RM estimado (Epley), recordes, séries semanais por músculo, sequência de semanas e próximo treino |
 | `src/lib/backup.ts` | Exportar / restaurar cópia de segurança (JSON) e exportar CSV |
 | `src/components/ui.tsx` | Peças de interface partilhadas (folhas inferiores, cabeçalhos, anel, etc.) |
@@ -73,34 +74,34 @@ e motor de progressão autorregulado.
 
 ### Demonstrações (GIFs)
 
-A chave da ExerciseDB vive em `.env.local` (fora do git), não na UI:
+As demonstrações vêm da API ExerciseDB, mas a app nunca vê a chave: pede-as ao
+seu próprio servidor (`server/exercisedb.mjs`), que tem a chave, vai buscá-las
+uma vez e guarda-as em `server/cache/`. A partir daí toda a gente as recebe do
+servidor, sem gastar a quota, e cada telemóvel guarda o GIF em IndexedDB para o
+mostrar offline.
+
+A chave fica em `server/.env` (fora do git):
 
 ```bash
-cp .env.example .env.local   # depois preenche VITE_EXERCISEDB_KEY
+cp server/.env.example server/.env   # depois preenche EXERCISEDB_KEY
 ```
 
-A app busca metadados + GIF (dois endpoints autenticados), guarda o GIF como
-blob em IndexedDB e mostra-o offline a partir daí.
-
-> ⚠️ Sendo uma app cliente estática, o Vite embute `VITE_EXERCISEDB_KEY` no
-> bundle no build. Para uso pessoal não há problema; se publicares, restringe/
-> roda a chave (ou serve via proxy).
+Em desenvolvimento corre o servidor ao lado do Vite (`npm run server` e
+`npm run dev`): o Vite encaminha `/api` para ele.
 
 ## Deploy
 
 ### Na tua VPS (servidor único)
 
-`server/index.mjs` é um servidor Express mínimo que serve a app já compilada
-(`./dist`). Na VPS (Node ≥ 20):
+`server/index.mjs` é um servidor Express pequeno que serve a app já compilada
+(`./dist`) e as demonstrações dos exercícios. Na VPS (Node ≥ 20):
 
 ```bash
 git clone https://github.com/itshenrique09/gymCoach.git && cd gymCoach
 npm install
-printf 'VITE_EXERCISEDB_KEY=<a-tua-chave>
-' > .env.local   # fora do git
-
-npm run build                    # gera ./dist (embute a chave VITE_)
+npm run build                    # gera ./dist
 npm --prefix server install
+echo 'EXERCISEDB_KEY=<a-tua-chave>' > server/.env   # fora do git
 PORT=8787 node server/index.mjs
 ```
 
@@ -117,13 +118,14 @@ treino.oteudominio.com {
 Para manter o processo vivo: `pm2 start server/index.mjs --name gym-coach` (ou um
 serviço systemd).
 
-> Sempre que mudares o `VITE_EXERCISEDB_KEY`, corre `npm run build` de novo (as
-> variáveis `VITE_` são embutidas no build).
+> Se mudares a `EXERCISEDB_KEY`, basta reiniciar o servidor
+> (`pm2 restart gym-coach`); não é preciso compilar de novo.
 
 ### Render (site estático, grátis)
 
 O `render.yaml` cria um site estático: Render → **New → Blueprint** → escolhe o
-repo e preenche `VITE_EXERCISEDB_KEY`.
+repo. Um site estático não tem servidor, por isso fica sem as demonstrações dos
+exercícios; tudo o resto funciona.
 
 ## Temporizador de descanso e ecrã bloqueado
 

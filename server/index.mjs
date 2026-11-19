@@ -2,8 +2,10 @@ import express from 'express';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { existsSync } from 'node:fs';
+import { mountExerciseDb } from './exercisedb.mjs';
 
-// Tiny static server for the built PWA (VPS deploy). Run `npm run build` first.
+// Small server for the built PWA (VPS deploy): the app's files plus the proxy
+// for exercise demos. Run `npm run build` first.
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 8787;
 const distDir = join(__dirname, '..', 'dist');
@@ -11,6 +13,8 @@ const distDir = join(__dirname, '..', 'dist');
 const app = express();
 
 app.get('/health', (_req, res) => res.json({ ok: true }));
+
+mountExerciseDb(app);
 
 if (existsSync(distDir)) {
   app.use(express.static(distDir));

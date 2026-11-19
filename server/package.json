@@ -3,7 +3,7 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "Static server for the Gym Coach PWA.",
+  "description": "Server for the Gym Coach PWA: static files and the exercise-demo proxy.",
   "engines": {
     "node": ">=20"
   },

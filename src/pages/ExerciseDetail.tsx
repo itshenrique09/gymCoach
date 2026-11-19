@@ -121,7 +121,7 @@ export function ExerciseDetail({ exerciseId, onBack }: { exerciseId: string; onB
             <div className="card mt-5 flex items-center gap-3 px-4 py-3.5 text-[13.5px] leading-snug text-label2">
               <Icon name="info" size={19} className="shrink-0 text-label3" />
               {media?.error === 'no-key' ? (
-                <span>Demonstração indisponível: falta a chave ExerciseDB no ficheiro .env.local.</span>
+                <span>Demonstração indisponível: falta a chave ExerciseDB no servidor.</span>
               ) : media?.error === NO_DEMO ? (
                 <span>Este exercício não tem demonstração disponível.</span>
               ) : (

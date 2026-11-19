@@ -30,3 +30,6 @@ dist-ssr
 
 # PWA dev service-worker output
 dev-dist
+
+# Demos fetched by the server's ExerciseDB proxy
+server/cache

@@ -1,9 +1,11 @@
 import type { ExerciseMedia, MuscleGroup } from '../types';
 import { getMedia, saveMedia } from './db';
 
-const HOST = 'exercisedb.p.rapidapi.com';
-const KEY = import.meta.env.VITE_EXERCISEDB_KEY as string | undefined;
-const RESOLUTION = 360;
+/**
+ * Demos come through the app's own server (see server/exercisedb.mjs), which
+ * holds the ExerciseDB key and keeps what it fetches. The app has no key.
+ */
+const API = '/api/exercisedb';
 const STALE_MS = 1000 * 60 * 60 * 24 * 90; // GIFs rarely change; refetch after 90 days
 
 /**
@@ -61,14 +63,17 @@ export function pickDemo(hits: ExerciseDbHit[], query: string, muscle?: MuscleGr
   return [...usable].sort((a, b) => offMuscle(a) - offMuscle(b) || a.name!.length - b.name!.length)[0];
 }
 
-function authHeaders() {
-  return { 'x-rapidapi-host': HOST, 'x-rapidapi-key': KEY as string };
+/** Error of a failed request: the server's own code when it sent one. */
+async function failure(res: Response, what = ''): Promise<Error> {
+  const body = (await res.json().catch(() => null)) as { error?: string } | null;
+  if (body?.error === 'no-key') return new Error('no-key');
+  return new Error(`${what}HTTP ${res.status}`);
 }
 
 /**
  * All search results for a name, page by page. Stops early once the exact
  * name has turned up (nothing can beat it) and never asks for more than a
- * few pages, since each one is a request against the API quota.
+ * few pages.
  */
 async function searchByName(query: string): Promise<ExerciseDbHit[]> {
   const PAGE = 50;
@@ -80,8 +85,8 @@ async function searchByName(query: string): Promise<ExerciseDbHit[]> {
   // paging in tens; otherwise a page shorter than asked for is the last one.
   let full = PAGE;
   for (let page = 0; page < MAX_PAGES; page++) {
-    const res = await fetch(`https://${HOST}/exercises/name/${encodeURIComponent(query)}?limit=${PAGE}&offset=${all.length}`, { headers: authHeaders() });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const res = await fetch(`${API}/search?name=${encodeURIComponent(query)}&limit=${PAGE}&offset=${all.length}`);
+    if (!res.ok) throw await failure(res);
     const data: unknown = await res.json();
     const hits = Array.isArray(data) ? (data as ExerciseDbHit[]) : [];
     all.push(...hits);
@@ -95,10 +100,9 @@ async function searchByName(query: string): Promise<ExerciseDbHit[]> {
  * Resolve a demo GIF + instructions for an exercise from ExerciseDB, caching the
  * GIF as a Blob in IndexedDB so it works fully offline afterwards.
  *
- * Two calls are needed: `/exercises/name/{q}` for metadata + id, then
- * `/image?exerciseId={id}` for the GIF (both require the API key in headers,
- * which is why the GIF can't be a plain <img src>). Degrades gracefully:
- *  - no key in env             → error 'no-key'
+ * Two calls are needed: a search by name for metadata + id, then the GIF for
+ * that id. Degrades gracefully:
+ *  - server has no key         → error 'no-key'
  *  - request fails / no result → cached value (if any) + error message
  */
 export async function getExerciseMedia(
@@ -116,19 +120,12 @@ export async function getExerciseMedia(
   const cached = stored?.v === MEDIA_VERSION && stored.query === demoQuery ? stored : undefined;
   if (cached?.gifBlob && Date.now() - cached.fetchedAt < STALE_MS) return cached;
 
-  if (!KEY) {
-    return cached ?? { exerciseId, fetchedAt: Date.now(), error: 'no-key' };
-  }
-
   try {
     const hit = pickDemo(await searchByName(demoQuery), demoQuery, muscle);
     if (!hit?.id) throw new Error(NO_DEMO);
 
-    const imgRes = await fetch(
-      `https://${HOST}/image?exerciseId=${hit.id}&resolution=${RESOLUTION}`,
-      { headers: authHeaders() },
-    );
-    if (!imgRes.ok) throw new Error(`imagem HTTP ${imgRes.status}`);
+    const imgRes = await fetch(`${API}/image?id=${encodeURIComponent(hit.id)}`);
+    if (!imgRes.ok) throw await failure(imgRes, 'imagem ');
     const gifBlob = await imgRes.blob();
 
     const media: ExerciseMedia = {

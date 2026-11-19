@@ -1,15 +1,12 @@
 # Render Blueprint — deploys the static PWA (free).
-# In Render: New → Blueprint → pick this repo. Then fill the env var marked
-# `sync: false` in the dashboard (see README → Deploy).
+# In Render: New → Blueprint → pick this repo. A static site has no server, so
+# exercise demos are not available this way (see README → Deploy).
 services:
   - type: web
     name: gym-coach-app
     runtime: static
     buildCommand: npm install && npm run build
     staticPublishPath: dist
-    envVars:
-      - key: VITE_EXERCISEDB_KEY
-        sync: false
     routes:
       - type: rewrite
         source: /*
